@@ -40,16 +40,19 @@ just check                # fmt-check + clippy + test
 
 ## Status
 
-First vertical slice working: `core` models tick progression (`Progress`,
-`TICKS_PER_SECOND = 1000`), `tui` renders it as a full-screen ratatui gauge that
-fills over 10 s and then exits, and `balance-sim` runs the same model headless.
-Build/run/test/lint/fmt all pass in the dev container.
+Interactive command loop working: `core` models tick progression (`Progress`,
+`TICKS_PER_SECOND = 1000`) plus the choosable domain (`Target::Hero`,
+`Action::ForestExploration`). The `tui` runs `select target → select action →
+run quest → back to menu`, picking each choice by its first-letter hotkey
+(`H)ero`); the chosen action drives the gauge. `balance-sim` runs the same model
+headless. Build/run/test/lint/fmt all pass in the dev container.
 
 ## Next steps
 
-- Grow the idle domain in `core`: multiple concurrent quests, save/load,
-  content data (the single-quest tick loop now exists).
-- Render multiple quests and player stats in the TUI; add richer input handling.
+- Award resources on quest completion (the current loop ends with no reward yet).
+- Grow the idle domain in `core`: more targets/actions, multiple concurrent
+  quests, save/load, content data.
+- Render multiple quests and player stats in the TUI.
 - Flesh out tools (balance sim, save inspector, content validator).
 
 ## Out of scope (for now)
