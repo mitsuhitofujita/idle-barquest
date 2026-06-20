@@ -1,6 +1,6 @@
 # ADR 0005: Command menu and first-letter input model
 
-- Status: Accepted
+- Status: Superseded by [ADR 0006](0006-concurrent-multi-target-progress-loop.md)
 - Date: 2026-06-20
 
 ## Context

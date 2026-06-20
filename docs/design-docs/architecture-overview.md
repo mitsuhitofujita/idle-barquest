@@ -40,19 +40,21 @@ just check                # fmt-check + clippy + test
 
 ## Status
 
-Interactive command loop working: `core` models tick progression (`Progress`,
-`TICKS_PER_SECOND = 1000`) plus the choosable domain (`Target::Hero`,
-`Action::ForestExploration`). The `tui` runs `select target → select action →
-run quest → back to menu`, picking each choice by its first-letter hotkey
-(`H)ero`); the chosen action drives the gauge. `balance-sim` runs the same model
+Concurrent command loop working: `core` models tick progression (`Progress`,
+`TICKS_PER_SECOND = 1000`) plus the choosable domain — three targets
+(`Target::Hero`, `Adventurer`, `Farmer`) sharing `Action::ForestExploration`.
+The `tui` runs one non-blocking, frame-paced loop that advances every target's
+quest in parallel and renders a stack of `apt`/`mise`-style bars
+(`target  action  [===>---] NN%`) at the top, with the first-letter hotkey menu
+(`H)ero`) at the bottom (see ADR 0006). `balance-sim` runs the same model
 headless. Build/run/test/lint/fmt all pass in the dev container.
 
 ## Next steps
 
-- Award resources on quest completion (the current loop ends with no reward yet).
-- Grow the idle domain in `core`: more targets/actions, multiple concurrent
-  quests, save/load, content data.
-- Render multiple quests and player stats in the TUI.
+- Award resources on quest completion (the loop still ends with no reward yet).
+- Grow the idle domain in `core`: more targets/actions, per-target stats,
+  save/load, content data.
+- Surface player/target stats and richer per-target state in the TUI.
 - Flesh out tools (balance sim, save inspector, content validator).
 
 ## Out of scope (for now)

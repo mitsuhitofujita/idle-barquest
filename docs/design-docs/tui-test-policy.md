@@ -64,13 +64,13 @@ binary.
 
 Scope:
 
-- Menu transitions: target selection, action selection, quest running, and
-  returning to the menu.
+- Menu transitions: target selection, action selection, and assigning or
+  restarting a target's quest.
 - Quit behavior from every screen.
 - Ignoring key-release and repeat events when only key presses should count.
-- Progressing active quests by elapsed ticks.
-- Completion hold behavior, modelled as state and remaining time rather than a
-  real sleep.
+- Progressing several targets' active quests concurrently by elapsed ticks.
+- Idle targets and finished quests resting at 100% rather than returning to a
+  menu.
 
 Best practices:
 
@@ -153,13 +153,13 @@ Recommended approach:
 
 For example, a quest progress test should check:
 
-- After selecting `Hero` and `Forest Exploration`, the app enters a running
-  quest state.
+- After selecting `Hero` and `Forest Exploration`, the hero's slot holds a
+  running quest while the other targets stay idle.
 - After 5 seconds of game time, the renderer shows roughly `50%`.
-- After 10 seconds of game time, the quest is complete and the 100% frame can be
-  rendered.
-- After the configured completion hold duration, the app returns to the target
-  menu.
+- After 10 seconds of game time, the quest is complete and its bar renders at
+  `100%`.
+- The finished bar rests at `100%` while any other started targets keep
+  progressing.
 
 No part of this test should sleep for 10 real seconds.
 
