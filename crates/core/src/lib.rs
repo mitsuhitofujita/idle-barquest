@@ -67,23 +67,29 @@ impl Progress {
 
 /// Who or what an action is performed on.
 ///
-/// At game start the player controls a single hero — their own avatar — so
-/// `Hero` is the only target. Richer hero state (stats, multiple heroes) is
-/// deferred to later work.
+/// Several targets exist so the player can run actions on them in parallel —
+/// the hero adventures while the adventurer and farmer work on their own tasks.
+/// Richer per-target state (stats, multiple of each) is deferred to later work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     /// The player's own avatar.
     Hero,
+    /// A guild-managed worker for exploration and hunting.
+    Adventurer,
+    /// A villager who works the land.
+    Farmer,
 }
 
 impl Target {
     /// Every target the player can currently choose, in menu order.
-    pub const ALL: &'static [Target] = &[Target::Hero];
+    pub const ALL: &'static [Target] = &[Target::Hero, Target::Adventurer, Target::Farmer];
 
     /// English display name, e.g. `"Hero"`.
     pub fn label(self) -> &'static str {
         match self {
             Target::Hero => "Hero",
+            Target::Adventurer => "Adventurer",
+            Target::Farmer => "Farmer",
         }
     }
 
@@ -182,6 +188,17 @@ mod tests {
     fn menu_lists_are_non_empty() {
         assert!(!Target::ALL.is_empty());
         assert!(!Action::ALL.is_empty());
+    }
+
+    #[test]
+    fn target_hotkeys_are_unique() {
+        // First-letter hotkeys must not collide within the target menu
+        // (ADR 0005): Hero/Adventurer/Farmer -> h/a/f.
+        let mut keys: Vec<char> = Target::ALL.iter().map(|t| t.hotkey()).collect();
+        keys.sort_unstable();
+        let count = keys.len();
+        keys.dedup();
+        assert_eq!(keys.len(), count, "target hotkeys collide: {keys:?}");
     }
 
     #[test]
