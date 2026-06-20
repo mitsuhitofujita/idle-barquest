@@ -40,13 +40,16 @@ just check                # fmt-check + clippy + test
 
 ## Status
 
-Scaffold only: `core::greeting()` returns the banner, `tui` prints it, and
-`balance-sim` is a stub. Build/run/test/lint/fmt all pass in the dev container.
+First vertical slice working: `core` models tick progression (`Progress`,
+`TICKS_PER_SECOND = 1000`), `tui` renders it as a full-screen ratatui gauge that
+fills over 10 s and then exits, and `balance-sim` runs the same model headless.
+Build/run/test/lint/fmt all pass in the dev container.
 
 ## Next steps
 
-- Wire `ratatui` + `crossterm` into `tui`: terminal setup, input, render loop.
-- Model the idle domain in `core`: tick progression, save/load, content data.
+- Grow the idle domain in `core`: multiple concurrent quests, save/load,
+  content data (the single-quest tick loop now exists).
+- Render multiple quests and player stats in the TUI; add richer input handling.
 - Flesh out tools (balance sim, save inspector, content validator).
 
 ## Out of scope (for now)
