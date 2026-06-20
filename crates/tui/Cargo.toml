@@ -1,0 +1,16 @@
+[package]
+name = "barquest-tui"
+description = "Terminal UI front-end for idle-barquest (the game binary)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "barquest"
+path = "src/main.rs"
+
+[dependencies]
+barquest-core = { workspace = true }

@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/tui", "crates/tools"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT"
+repository = "https://github.com/mitsuhitofujita/idle-barquest"
+authors = ["Mitsuhito Fujita <mitsuhitofujita@gmail.com>"]
+
+[workspace.dependencies]
+# Internal: shared game logic, depended on by the tui and tools crates.
+barquest-core = { path = "crates/core" }
+
+# TUI rendering stack. Centralized here; wired into the tui crate in the
+# next step (the current Hello, World. is intentionally dependency-free).
+ratatui = "0.30"
+crossterm = "0.29"
+
+# Reserved for upcoming save/content (de)serialization work.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
