@@ -65,6 +65,74 @@ impl Progress {
     }
 }
 
+/// Who or what an action is performed on.
+///
+/// At game start the player controls a single hero — their own avatar — so
+/// `Hero` is the only target. Richer hero state (stats, multiple heroes) is
+/// deferred to later work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    /// The player's own avatar.
+    Hero,
+}
+
+impl Target {
+    /// Every target the player can currently choose, in menu order.
+    pub const ALL: &'static [Target] = &[Target::Hero];
+
+    /// English display name, e.g. `"Hero"`.
+    pub fn label(self) -> &'static str {
+        match self {
+            Target::Hero => "Hero",
+        }
+    }
+
+    /// First-letter selection key (the label's first char, ASCII-lowercased).
+    pub fn hotkey(self) -> char {
+        first_hotkey(self.label())
+    }
+}
+
+/// What the player does with the chosen target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// Send the target to explore the forest.
+    ForestExploration,
+}
+
+impl Action {
+    /// Every action the player can currently choose, in menu order.
+    pub const ALL: &'static [Action] = &[Action::ForestExploration];
+
+    /// English display name, e.g. `"Forest Exploration"`.
+    pub fn label(self) -> &'static str {
+        match self {
+            Action::ForestExploration => "Forest Exploration",
+        }
+    }
+
+    /// First-letter selection key (the label's first char, ASCII-lowercased).
+    pub fn hotkey(self) -> char {
+        first_hotkey(self.label())
+    }
+
+    /// Ticks this action takes to complete; used to seed a [`Progress`].
+    pub fn goal_ticks(self) -> u64 {
+        match self {
+            Action::ForestExploration => seconds_to_ticks(10),
+        }
+    }
+}
+
+/// Derives a menu hotkey from a label: its first char, ASCII-lowercased.
+fn first_hotkey(label: &str) -> char {
+    label
+        .chars()
+        .next()
+        .map(|c| c.to_ascii_lowercase())
+        .unwrap_or(' ')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +176,41 @@ mod tests {
         let quest = Progress::new(0);
         assert_eq!(quest.goal(), 1);
         assert_eq!(quest.ratio(), 0.0);
+    }
+
+    #[test]
+    fn menu_lists_are_non_empty() {
+        assert!(!Target::ALL.is_empty());
+        assert!(!Action::ALL.is_empty());
+    }
+
+    #[test]
+    fn hotkeys_are_derived_from_labels() {
+        assert_eq!(Target::Hero.hotkey(), 'h');
+        assert_eq!(Action::ForestExploration.hotkey(), 'f');
+        for &target in Target::ALL {
+            let first = target
+                .label()
+                .chars()
+                .next()
+                .map(|c| c.to_ascii_lowercase());
+            assert_eq!(Some(target.hotkey()), first);
+        }
+        for &action in Action::ALL {
+            let first = action
+                .label()
+                .chars()
+                .next()
+                .map(|c| c.to_ascii_lowercase());
+            assert_eq!(Some(action.hotkey()), first);
+        }
+    }
+
+    #[test]
+    fn action_goal_seeds_a_valid_progress() {
+        let goal = Action::ForestExploration.goal_ticks();
+        assert_eq!(goal, seconds_to_ticks(10));
+        assert!(goal > 0);
+        assert_eq!(Progress::new(goal).goal(), goal);
     }
 }
