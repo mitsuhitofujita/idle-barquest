@@ -1,16 +1,17 @@
 //! idle-barquest terminal front-end.
 //!
 //! Drives the command loop and renders the game state from `barquest-core`.
-//! Each target (`Hero`, `Adventurer`, `Farmer`) has its own progress bar shown
-//! at the top of the screen; the player picks a target (`H)ero`) and an action
-//! (`F)orest Exploration`) via first-letter hotkeys in the menu at the bottom,
-//! and the bars fill **concurrently** like an `apt` / `mise` update. `q` / `Esc`
-//! / `Ctrl-C` quits from any screen.
+//! The world is data-driven: a [`Catalog`] supplies the target/action templates
+//! and a [`GameState`] holds the live target instances. Each target instance has
+//! its own progress bar at the top of the screen; the player picks a target
+//! (`H)ero`) and an action (`F)orest Exploration`) via first-letter hotkeys in
+//! the menu at the bottom, and the bars fill **concurrently** like an `apt` /
+//! `mise` update. `q` / `Esc` / `Ctrl-C` quits from any screen.
 
 use std::io;
 use std::time::{Duration, Instant};
 
-use barquest_core::{Action, Progress, Target};
+use barquest_core::{Catalog, GameState, TargetId};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::widgets::Paragraph;
@@ -32,42 +33,25 @@ fn main() -> io::Result<()> {
     result
 }
 
-/// A running (or just-finished) action assigned to a target.
-struct Quest {
-    action: Action,
-    progress: Progress,
-}
-
-/// One target's row: the target plus its current quest, if any.
-struct Slot {
-    target: Target,
-    quest: Option<Quest>,
-}
-
 /// Which menu the bottom of the screen is currently showing.
 enum Menu {
     /// Choose which target to command next.
     SelectTarget,
-    /// Choose an action for the already-chosen `target`.
-    SelectAction { target: Target },
+    /// Choose an action for the already-chosen target instance.
+    SelectAction { target: TargetId },
 }
 
 /// Runs the unified loop: advance every target's quest each frame while the
 /// player assigns actions via the bottom menu. Returns when the player quits.
 fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
-    let mut slots: Vec<Slot> = Target::ALL
-        .iter()
-        .map(|&target| Slot {
-            target,
-            quest: None,
-        })
-        .collect();
+    let catalog = Catalog::builtin();
+    let mut state = GameState::seeded(&catalog);
     let mut menu = Menu::SelectTarget;
     let start = Instant::now();
     let mut frame_idx: u32 = 0;
 
     loop {
-        terminal.draw(|frame| render(frame, &slots, &menu))?;
+        terminal.draw(|frame| render(frame, &catalog, &state, &menu))?;
 
         // Drain input until the next frame boundary, pinned to the wall clock so
         // every bar fills in real time regardless of how long rendering takes.
@@ -83,25 +67,20 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
                 if is_quit(&event) {
                     return Ok(());
                 }
-                handle_key(&event, &mut slots, &mut menu);
+                handle_key(&event, &catalog, &mut state, &mut menu);
                 // Redraw immediately so menu navigation feels responsive.
-                terminal.draw(|frame| render(frame, &slots, &menu))?;
+                terminal.draw(|frame| render(frame, &catalog, &state, &menu))?;
             }
         }
 
-        for slot in &mut slots {
-            if let Some(quest) = &mut slot.quest
-                && !quest.progress.is_complete()
-            {
-                quest.progress.advance(TICKS_PER_FRAME);
-            }
-        }
+        state.advance(TICKS_PER_FRAME);
     }
 }
 
-/// Applies a key press to the menu/slot state: target selection then action
-/// assignment, which (re)starts that target's quest.
-fn handle_key(event: &Event, slots: &mut [Slot], menu: &mut Menu) {
+/// Applies a key press to the menu/state: target selection then action
+/// assignment, which (re)starts that target instance's quest. Hotkeys are
+/// resolved through the catalog templates.
+fn handle_key(event: &Event, catalog: &Catalog, state: &mut GameState, menu: &mut Menu) {
     let Event::Key(key) = event else {
         return;
     };
@@ -113,78 +92,120 @@ fn handle_key(event: &Event, slots: &mut [Slot], menu: &mut Menu) {
     };
     let pressed = c.to_ascii_lowercase();
 
-    match *menu {
+    match menu {
         Menu::SelectTarget => {
-            if let Some(&target) = Target::ALL.iter().find(|t| t.hotkey() == pressed) {
+            if let Some(target) = state
+                .targets
+                .iter()
+                .find(|inst| {
+                    catalog
+                        .target(&inst.template_id)
+                        .is_some_and(|t| t.hotkey() == pressed)
+                })
+                .map(|inst| inst.id.clone())
+            {
                 *menu = Menu::SelectAction { target };
             }
         }
         Menu::SelectAction { target } => {
-            if let Some(&action) = Action::ALL.iter().find(|a| a.hotkey() == pressed) {
-                if let Some(slot) = slots.iter_mut().find(|s| s.target == target) {
-                    slot.quest = Some(Quest {
-                        action,
-                        progress: Progress::new(action.goal_ticks()),
-                    });
-                }
+            // Clone the chosen instance id out so we can reassign `menu` below.
+            let target = target.clone();
+            if let Some(action) = state
+                .unlocked_actions
+                .iter()
+                .find(|id| catalog.action(id).is_some_and(|a| a.hotkey() == pressed))
+                .cloned()
+            {
+                state.assign_action(catalog, &target, &action);
                 *menu = Menu::SelectTarget;
             }
         }
     }
 }
 
-/// A choosable menu entry. Both core `Target` and `Action` implement it so a
-/// single [`render_menu`] can list either menu's choices.
-trait MenuItem: Copy {
-    fn label(self) -> &'static str;
-}
-
-impl MenuItem for Target {
-    fn label(self) -> &'static str {
-        Target::label(self)
-    }
-}
-
-impl MenuItem for Action {
-    fn label(self) -> &'static str {
-        Action::label(self)
-    }
-}
-
 /// Lays out the screen: progress bars at the top, the command menu at the
 /// bottom, separated by a flexible spacer.
-fn render(frame: &mut Frame, slots: &[Slot], menu: &Menu) {
+fn render(frame: &mut Frame, catalog: &Catalog, state: &GameState, menu: &Menu) {
     let [top, _spacer, bottom] = Layout::vertical([
-        Constraint::Length(slots.len() as u16),
+        Constraint::Length(state.targets.len() as u16),
         Constraint::Fill(1),
         Constraint::Length(MENU_HEIGHT),
     ])
     .areas(frame.area());
 
-    render_progress(frame, top, slots);
+    render_progress(frame, top, catalog, state);
 
-    match *menu {
-        Menu::SelectTarget => render_menu(frame, bottom, "Select target", Target::ALL),
+    match menu {
+        Menu::SelectTarget => {
+            // The selectable targets are the instances shown above.
+            let labels: Vec<&str> = state
+                .targets
+                .iter()
+                .filter_map(|inst| catalog.target(&inst.template_id))
+                .map(|t| t.label.as_str())
+                .collect();
+            render_menu(frame, bottom, "Select target", &labels);
+        }
         Menu::SelectAction { target } => {
-            let title = format!("{} — select action", target.label());
-            render_menu(frame, bottom, &title, Action::ALL);
+            let title = match state
+                .targets
+                .iter()
+                .find(|inst| &inst.id == target)
+                .and_then(|inst| catalog.target(&inst.template_id))
+            {
+                Some(template) => format!("{} — select action", template.label),
+                None => "Select action".to_string(),
+            };
+            let labels: Vec<&str> = state
+                .unlocked_actions
+                .iter()
+                .filter_map(|id| catalog.action(id))
+                .map(|a| a.label.as_str())
+                .collect();
+            render_menu(frame, bottom, &title, &labels);
         }
     }
 }
 
-/// Draws one left-aligned row per target: `target  action  [===>---]  NN%`.
-fn render_progress(frame: &mut Frame, area: Rect, slots: &[Slot]) {
-    let tw = column_width(Target::ALL.iter().map(|t| t.label()));
-    let aw = column_width(Action::ALL.iter().map(|a| a.label()).chain(["—"]));
+/// Draws one left-aligned row per target instance:
+/// `target  action  [===>---]  NN%`. Labels are resolved via the catalog.
+fn render_progress(frame: &mut Frame, area: Rect, catalog: &Catalog, state: &GameState) {
+    // Column widths come from what's on screen (instances + unlocked actions
+    // + the idle dash), matching the old `Target::ALL` / `Action::ALL` widths.
+    let tw = column_width(
+        state
+            .targets
+            .iter()
+            .filter_map(|inst| catalog.target(&inst.template_id))
+            .map(|t| t.label.as_str()),
+    );
+    let aw = column_width(
+        state
+            .unlocked_actions
+            .iter()
+            .filter_map(|id| catalog.action(id))
+            .map(|a| a.label.as_str())
+            .chain(["—"]),
+    );
 
-    let rows = slots
+    let rows = state
+        .targets
         .iter()
-        .map(|slot| {
-            let (action, ratio) = match &slot.quest {
-                Some(quest) => (quest.action.label(), quest.progress.ratio()),
+        .map(|inst| {
+            let target = catalog
+                .target(&inst.template_id)
+                .map(|t| t.label.as_str())
+                .unwrap_or("?");
+            let (action, ratio) = match &inst.quest {
+                Some(quest) => (
+                    catalog
+                        .action(&quest.action)
+                        .map(|a| a.label.as_str())
+                        .unwrap_or("?"),
+                    quest.progress.ratio(),
+                ),
                 None => ("—", 0.0),
             };
-            let target = slot.target.label();
             let bar = progress_bar(ratio, BAR_WIDTH);
             let pct = (ratio * 100.0).round() as u16;
             format!("{target:<tw$}  {action:<aw$}  {bar} {pct:>3}%")
@@ -200,7 +221,7 @@ fn render_progress(frame: &mut Frame, area: Rect, slots: &[Slot]) {
 
 /// Draws the bottom menu block: a title, a single line of `H)ero`-style
 /// choices, and the shared quit hint.
-fn render_menu<T: MenuItem>(frame: &mut Frame, area: Rect, title: &str, items: &[T]) {
+fn render_menu(frame: &mut Frame, area: Rect, title: &str, labels: &[&str]) {
     let [title_row, list_row, hint_row] = Layout::vertical([Constraint::Length(1); 3]).areas(area);
 
     frame.render_widget(
@@ -208,9 +229,10 @@ fn render_menu<T: MenuItem>(frame: &mut Frame, area: Rect, title: &str, items: &
         centered(title_row),
     );
 
-    let list = items
+    let list = labels
         .iter()
-        .map(|item| hotkey_label(item.label()))
+        .copied()
+        .map(hotkey_label)
         .collect::<Vec<_>>()
         .join("   ");
     frame.render_widget(
@@ -293,6 +315,7 @@ fn is_quit(event: &Event) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use barquest_core::{ActionId, seconds_to_ticks};
 
     #[test]
     fn progress_bar_empty_is_all_dashes() {
@@ -326,12 +349,14 @@ mod tests {
 
     /// Flattens a full `render` pass to a single string of cell symbols so we
     /// can assert the screen contains the expected pieces, position-agnostic.
-    fn rendered(slots: &[Slot], menu: &Menu) -> String {
+    fn rendered(catalog: &Catalog, state: &GameState, menu: &Menu) -> String {
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
 
         let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
-        terminal.draw(|frame| render(frame, slots, menu)).unwrap();
+        terminal
+            .draw(|frame| render(frame, catalog, state, menu))
+            .unwrap();
         terminal
             .backend()
             .buffer()
@@ -343,27 +368,17 @@ mod tests {
 
     #[test]
     fn render_shows_a_bar_row_per_target_and_the_menu() {
-        let mut running = Progress::new(Action::ForestExploration.goal_ticks());
-        running.advance(running.goal() / 2); // 50%
-        let slots = vec![
-            Slot {
-                target: Target::Hero,
-                quest: None,
-            },
-            Slot {
-                target: Target::Adventurer,
-                quest: Some(Quest {
-                    action: Action::ForestExploration,
-                    progress: running,
-                }),
-            },
-            Slot {
-                target: Target::Farmer,
-                quest: None,
-            },
-        ];
+        let catalog = Catalog::builtin();
+        let mut state = GameState::seeded(&catalog);
+        // Put the adventurer halfway through forest exploration.
+        state.assign_action(
+            &catalog,
+            &TargetId::new("adventurer"),
+            &ActionId::new("forest_exploration"),
+        );
+        state.advance(seconds_to_ticks(5)); // 50% of the 10s goal
 
-        let screen = rendered(&slots, &Menu::SelectTarget);
+        let screen = rendered(&catalog, &state, &Menu::SelectTarget);
 
         // A row per target with the apt/mise-style bar and percent.
         for target in ["Hero", "Adventurer", "Farmer"] {
@@ -379,18 +394,14 @@ mod tests {
 
     #[test]
     fn action_menu_titles_the_chosen_target() {
-        let slots: Vec<Slot> = Target::ALL
-            .iter()
-            .map(|&target| Slot {
-                target,
-                quest: None,
-            })
-            .collect();
+        let catalog = Catalog::builtin();
+        let state = GameState::seeded(&catalog);
 
         let screen = rendered(
-            &slots,
+            &catalog,
+            &state,
             &Menu::SelectAction {
-                target: Target::Hero,
+                target: TargetId::new("hero"),
             },
         );
 
