@@ -1,6 +1,6 @@
 # ADR 0006: Concurrent multi-target progress loop
 
-- Status: Accepted
+- Status: Superseded by [ADR 0008](0008-full-screen-tui-layout-and-events.md)
 - Date: 2026-06-20
 
 ## Context
