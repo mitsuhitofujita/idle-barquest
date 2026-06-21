@@ -249,7 +249,9 @@ impl Catalog {
     }
 }
 
-/// A running (or just-finished) action assigned to a target instance.
+/// A running action assigned to a target instance. A quest exists only while it
+/// is in progress; [`GameState::advance`] removes it the moment it completes and
+/// reports that as a [`GameEvent::QuestCompleted`].
 #[derive(Debug, Clone)]
 pub struct Quest {
     /// Which action is running; resolve its label/duration via the [`Catalog`].
@@ -258,21 +260,39 @@ pub struct Quest {
     pub progress: Progress,
 }
 
+/// Something that happened during an [`advance`](GameState::advance) step. The
+/// front-end turns these into log lines; ids are resolved to labels via the
+/// [`Catalog`]. More variants (rewards, discoveries, depletion) land later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameEvent {
+    /// A target finished an action this step; the quest has been removed.
+    QuestCompleted {
+        /// Instance that was running the action.
+        target: TargetId,
+        /// Action that just completed.
+        action: ActionId,
+    },
+}
+
 /// One live target in the world: its own instance id, the template it was
-/// spawned from, and its current quest (if any).
+/// spawned from, and the actions it is currently running.
 ///
 /// `id` is unique per instance while `template_id` says what kind it is; for
 /// today's one-of-each world they happen to be equal. Label/hotkey lookups must
 /// always go through `template_id`. A dedicated `InstanceId` type is the natural
 /// upgrade once duplicates become common.
+///
+/// A target may run several actions at once — a facility, for example, can keep
+/// multiple productions going — so `quests` is a list with at most one entry per
+/// action (see [`GameState::assign_action`]).
 #[derive(Debug, Clone)]
 pub struct TargetInstance {
     /// Unique id for this specific target instance.
     pub id: TargetId,
     /// The template this instance was spawned from.
     pub template_id: TargetId,
-    /// The action currently assigned, if any.
-    pub quest: Option<Quest>,
+    /// The actions currently running on this target, one quest each.
+    pub quests: Vec<Quest>,
 }
 
 /// The live game world: which target instances exist, which actions are
@@ -304,7 +324,7 @@ impl GameState {
             state.targets.push(TargetInstance {
                 id: template.id.clone(),
                 template_id: template.id.clone(),
-                quest: None,
+                quests: Vec::new(),
             });
         }
         for template in catalog.actions() {
@@ -323,7 +343,7 @@ impl GameState {
         self.targets.push(TargetInstance {
             id: id.clone(),
             template_id: template.clone(),
-            quest: None,
+            quests: Vec::new(),
         });
         Some(id)
     }
@@ -345,6 +365,10 @@ impl GameState {
     /// [`Progress`] from the action template's `goal_ticks`. Returns `false` if
     /// the action or the instance id is unknown. The menu guarantees the action
     /// is unlocked, so only catalog membership is validated here.
+    ///
+    /// A target may run several actions at once, but never the same action
+    /// twice: if it is already running, its progress is reset (a restart);
+    /// otherwise a new quest is appended.
     pub fn assign_action(
         &mut self,
         catalog: &Catalog,
@@ -358,22 +382,45 @@ impl GameState {
         let Some(target) = self.targets.iter_mut().find(|t| &t.id == instance) else {
             return false;
         };
-        target.quest = Some(Quest {
-            action: action.clone(),
-            progress: Progress::new(goal),
-        });
+        match target.quests.iter_mut().find(|q| &q.action == action) {
+            Some(quest) => quest.progress = Progress::new(goal),
+            None => target.quests.push(Quest {
+                action: action.clone(),
+                progress: Progress::new(goal),
+            }),
+        }
         true
     }
 
-    /// Advances every active, incomplete quest by `ticks` (the loop step).
-    pub fn advance(&mut self, ticks: u64) {
+    /// Advances every running quest by `ticks` (the loop step) and returns the
+    /// events that fired. A quest that reaches its goal this step is reported as
+    /// a [`GameEvent::QuestCompleted`] and removed, so finished work leaves the
+    /// progress region and surfaces in the log instead.
+    pub fn advance(&mut self, ticks: u64) -> Vec<GameEvent> {
+        let mut events = Vec::new();
         for target in &mut self.targets {
-            if let Some(quest) = &mut target.quest
-                && !quest.progress.is_complete()
-            {
+            for quest in &mut target.quests {
                 quest.progress.advance(ticks);
+                if quest.progress.is_complete() {
+                    events.push(GameEvent::QuestCompleted {
+                        target: target.id.clone(),
+                        action: quest.action.clone(),
+                    });
+                }
             }
+            target.quests.retain(|quest| !quest.progress.is_complete());
         }
+        events
+    }
+
+    /// Iterates every running quest paired with the target running it, in
+    /// target-then-assignment order. The front-end renders one progress row per
+    /// item. Completed quests are not included — [`advance`](Self::advance)
+    /// removes them as they finish.
+    pub fn active_quests(&self) -> impl Iterator<Item = (&TargetInstance, &Quest)> {
+        self.targets
+            .iter()
+            .flat_map(|target| target.quests.iter().map(move |quest| (target, quest)))
     }
 
     /// Picks an unused instance id for a new target of `template`: the template
@@ -556,7 +603,7 @@ mod tests {
             .map(|t| t.template_id.as_str())
             .collect();
         assert_eq!(template_ids, ["hero", "adventurer", "farmer"]);
-        assert!(state.targets.iter().all(|t| t.quest.is_none()));
+        assert!(state.targets.iter().all(|t| t.quests.is_empty()));
         assert_eq!(
             state.unlocked_actions,
             vec![ActionId::new("forest_exploration")]
@@ -613,14 +660,9 @@ mod tests {
         let forest = ActionId::new("forest_exploration");
 
         assert!(state.assign_action(&catalog, &hero, &forest));
-        let quest = state
-            .targets
-            .iter()
-            .find(|t| t.id == hero)
-            .unwrap()
-            .quest
-            .as_ref()
-            .unwrap();
+        let target = state.targets.iter().find(|t| t.id == hero).unwrap();
+        assert_eq!(target.quests.len(), 1);
+        let quest = &target.quests[0];
         assert_eq!(quest.action, forest);
         assert_eq!(quest.progress.goal(), seconds_to_ticks(10));
         assert_eq!(quest.progress.ratio(), 0.0);
@@ -631,47 +673,86 @@ mod tests {
     }
 
     #[test]
-    fn advance_progresses_active_quests() {
+    fn assigning_the_same_action_twice_restarts_one_quest() {
+        let catalog = Catalog::builtin();
+        let mut state = GameState::seeded(&catalog);
+        let hero = TargetId::new("hero");
+        let forest = ActionId::new("forest_exploration");
+
+        state.assign_action(&catalog, &hero, &forest);
+        state.advance(seconds_to_ticks(5));
+        // Re-assigning the running action resets its progress, not a second row.
+        state.assign_action(&catalog, &hero, &forest);
+
+        let target = state.targets.iter().find(|t| t.id == hero).unwrap();
+        assert_eq!(target.quests.len(), 1, "same action must not duplicate");
+        assert_eq!(target.quests[0].progress.ratio(), 0.0, "should restart");
+    }
+
+    #[test]
+    fn one_target_runs_distinct_actions_concurrently() {
+        // A facility-style target running two different actions at once.
+        let mut catalog = Catalog::new();
+        catalog.register_target(TargetTemplate::new("farm", "Farm"));
+        catalog.register_action(ActionTemplate::new(
+            "farming",
+            "Farming",
+            seconds_to_ticks(10),
+        ));
+        catalog.register_action(ActionTemplate::new(
+            "livestock",
+            "Livestock",
+            seconds_to_ticks(20),
+        ));
+        let mut state = GameState::seeded(&catalog);
+        let farm = TargetId::new("farm");
+
+        assert!(state.assign_action(&catalog, &farm, &ActionId::new("farming")));
+        assert!(state.assign_action(&catalog, &farm, &ActionId::new("livestock")));
+
+        let target = state.targets.iter().find(|t| t.id == farm).unwrap();
+        assert_eq!(target.quests.len(), 2);
+        assert_eq!(state.active_quests().count(), 2);
+    }
+
+    #[test]
+    fn advance_progresses_then_completes_and_removes_the_quest() {
         let catalog = Catalog::builtin();
         let mut state = GameState::seeded(&catalog);
         let hero = TargetId::new("hero");
         let forest = ActionId::new("forest_exploration");
         state.assign_action(&catalog, &hero, &forest);
 
-        state.advance(seconds_to_ticks(5)); // half of the 10s goal
-        let ratio = state
-            .targets
-            .iter()
-            .find(|t| t.id == hero)
-            .unwrap()
-            .quest
-            .as_ref()
-            .unwrap()
+        // Half-way: still running, no event yet.
+        let events = state.advance(seconds_to_ticks(5));
+        assert!(events.is_empty());
+        let ratio = state.targets.iter().find(|t| t.id == hero).unwrap().quests[0]
             .progress
             .ratio();
         assert_eq!(ratio, 0.5);
 
-        state.advance(seconds_to_ticks(100)); // overshoot saturates at the goal
-        let progress = state
-            .targets
-            .iter()
-            .find(|t| t.id == hero)
-            .unwrap()
-            .quest
-            .as_ref()
-            .unwrap()
-            .progress
-            .clone();
-        assert!(progress.is_complete());
-        assert_eq!(progress.elapsed(), seconds_to_ticks(10));
+        // Completing advance: one event, and the finished quest is removed.
+        let events = state.advance(seconds_to_ticks(100)); // overshoot the goal
+        assert_eq!(
+            events,
+            vec![GameEvent::QuestCompleted {
+                target: hero.clone(),
+                action: forest.clone(),
+            }]
+        );
+        let hero_target = state.targets.iter().find(|t| t.id == hero).unwrap();
+        assert!(hero_target.quests.is_empty(), "completed quest is removed");
 
-        // Idle targets stay questless.
+        // The completion fires once: a further advance reports nothing.
+        assert!(state.advance(seconds_to_ticks(5)).is_empty());
+
+        // Idle targets stayed questless throughout.
         assert!(
             state
                 .targets
                 .iter()
                 .filter(|t| t.id != hero)
-                .all(|t| t.quest.is_none())
+                .all(|t| t.quests.is_empty())
         );
     }
 }
