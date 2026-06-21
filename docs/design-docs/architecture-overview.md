@@ -46,7 +46,9 @@ Data-driven command loop working: `core` models tick progression (`Progress`,
 Hero/Adventurer/Farmer + Forest Exploration) and a `GameState` of live
 `TargetInstance`s, each holding multiple concurrent `quests`, with `spawn_target`
 / `unlock_action` / `assign_action` / `advance` (see ADR 0007). `advance` returns
-`GameEvent`s and removes finished quests. The `tui` runs one non-blocking,
+`GameEvent`s and removes finished quests. `core` is split into `time` / `id` /
+`catalog` / `state` modules, with the public API re-exported flat from the crate
+root (see ADR 0009). The `tui` runs one non-blocking,
 frame-paced loop and renders the fixed five-region full-screen layout from
 `docs/terminal-ui-layout.md` — Title / Progress / User Choices / Information Log /
 Global Menu, ASCII separators, an 80x24 minimum-size guard (see ADR 0008). The
