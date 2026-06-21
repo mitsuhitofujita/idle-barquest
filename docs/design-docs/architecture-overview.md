@@ -48,8 +48,11 @@ Hero/Adventurer/Farmer + Forest Exploration) and a `GameState` of live
 / `unlock_action` / `assign_action` / `advance` (see ADR 0007). `advance` returns
 `GameEvent`s and removes finished quests. `core` is split into `time` / `id` /
 `catalog` / `state` modules, with the public API re-exported flat from the crate
-root (see ADR 0009). The `tui` runs one non-blocking,
-frame-paced loop and renders the fixed five-region full-screen layout from
+root (see ADR 0009). The `tui` is split into `app` (live state + behaviour),
+`input` (event translation), and `render` (the five-region projection) modules,
+with `main` keeping only the loop and terminal lifecycle (see ADR 0010); it runs
+one non-blocking, frame-paced loop and renders the fixed five-region full-screen
+layout from
 `docs/terminal-ui-layout.md` — Title / Progress / User Choices / Information Log /
 Global Menu, ASCII separators, an 80x24 minimum-size guard (see ADR 0008). The
 Progress region shows one `[===>---] NN%` bar per active action; the player

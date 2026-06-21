@@ -1,7 +1,9 @@
 # Test Policy for Active TUI Gameplay
 
-- Status: Proposal
+- Status: Accepted
 - Date: 2026-06-20
+- Updated: 2026-06-21 — the App/Input/render split below is implemented; see
+  [ADR 0010](../adr/0010-tui-module-structure.md).
 
 ## Purpose
 
@@ -253,12 +255,20 @@ gate unless they are proven reliable in CI.
 
 ## Near-Term Recommendations
 
-1. Extract TUI state from `main.rs` into an `App` type.
-2. Move menu/quest progression into `App::update(input, elapsed)`.
-3. Keep `run()` as a thin loop that reads terminal events, computes elapsed time,
-   calls `App::update`, and draws `render(frame, &app)`.
-4. Add renderer tests with `TestBackend` for the current menu and quest screens.
-5. Add input translation tests for quit keys, hotkeys, and ignored events.
+Recommendations 1–5 are implemented as of 2026-06-21 (ADR 0010); 6 is ongoing.
+
+1. ~~Extract TUI state from `main.rs` into an `App` type.~~ Done — `app::App`.
+2. ~~Move menu/quest progression into `App::update(input, elapsed)`.~~ Done —
+   `App::update(Input)` handles selection; `App::advance(ticks)` steps the world
+   and logs completion events.
+3. ~~Keep `run()` as a thin loop that reads terminal events, computes elapsed
+   time, calls `App::update`, and draws `render(frame, &app)`.~~ Done —
+   `main.rs` is the frame loop only.
+4. ~~Add renderer tests with `TestBackend` for the current menu and quest
+   screens.~~ Done — `render` module tests.
+5. ~~Add input translation tests for quit keys, hotkeys, and ignored events.~~
+   Done — `input` module tests cover `q`/`Esc`/`Ctrl-C`, digits, key releases,
+   and unknown keys.
 6. Keep existing `core` tests as the main gameplay safety net and expand them as
    rewards/resources are introduced.
 
