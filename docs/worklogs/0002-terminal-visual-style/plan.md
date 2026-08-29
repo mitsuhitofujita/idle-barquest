@@ -1,8 +1,8 @@
 ---
 date: 2026-08-29
-status: in-progress
+status: merged
 discussions: [0003-terminal-visual-style]
-decisions: []
+decisions: [0011-terminal-visual-style]
 pr: null
 ---
 

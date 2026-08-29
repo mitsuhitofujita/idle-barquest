@@ -86,3 +86,4 @@ land first; external authoring comes later.
 - [Decision 0008: Full-screen TUI layout and events](../decisions/0008-full-screen-tui-layout-and-events.md)
 - [Decision 0009: Core module structure](../decisions/0009-core-module-structure.md)
 - [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)
+- [Decision 0011: Terminal visual style](../decisions/0011-terminal-visual-style.md)

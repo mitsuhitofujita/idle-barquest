@@ -219,3 +219,4 @@ When implementing or modifying the UI, preserve these invariants:
 - [Decision 0002: ratatui and crossterm for the TUI](../decisions/0002-ratatui-crossterm-for-tui.md)
 - [Decision 0008: Full-screen TUI layout and events](../decisions/0008-full-screen-tui-layout-and-events.md)
 - [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)
+- [Decision 0011: Terminal visual style](../decisions/0011-terminal-visual-style.md)

@@ -1,9 +1,9 @@
 ---
 date: 2026-08-29
 tags: [tui, visual-design]
-status: worked
+status: decided
 worklogs: [0002-terminal-visual-style]
-decisions: []
+decisions: [0011-terminal-visual-style]
 ---
 
 スタイルを変更して。
