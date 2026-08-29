@@ -1,9 +1,9 @@
 //! Rendering: the pure projection from [`App`] state onto a terminal buffer.
 //!
 //! This module owns the fixed five-region stack from
-//! `docs/design/terminal-ui-layout.md` (Title / Progress / User Choices / Information
-//! Log / Global Menu) and the ASCII chrome separating the lower regions. The two larger
-//! regions live in submodules: [`progress`] and [`choices`]. Renderers never
+//! `docs/design/terminal-ui-layout.md` (Title / Information Log / User Choices /
+//! Progress / Global Menu) and the ASCII chrome separating the lower regions. The
+//! two fixed data regions live in submodules: [`progress`] and [`choices`]. Renderers never
 //! mutate game state or read input, so they can be exercised with a
 //! `TestBackend` (see `docs/design/tui-test-policy.md`).
 
@@ -20,12 +20,15 @@ mod progress;
 /// refuses to draw its UI (see `docs/design/terminal-ui-layout.md`).
 const MIN_WIDTH: u16 = 80;
 const MIN_HEIGHT: u16 = 24;
-/// Fixed heights (rows) of the title, user-choices, and global-menu regions.
-/// The three separators below the progress region are one row each; the
-/// information log takes whatever vertical space is left.
+/// Fixed heights (rows) of the title, user-choices, progress, and global-menu
+/// regions. The three separators below the information log are one row each;
+/// the information log takes whatever vertical space is left.
 const TITLE_H: u16 = 3;
-const CHOICES_H: u16 = 10;
+const CHOICES_H: u16 = 7;
+const PROGRESS_H: u16 = 6;
 const MENU_H: u16 = 1;
+/// The first log-region row is always blank to separate the title from content.
+const LOG_GAP_H: u16 = 1;
 
 /// Fixed-width title artwork. Every line is 38 single-width ASCII characters.
 const TITLE: &str = concat!(
@@ -37,10 +40,10 @@ const TITLE: &str = concat!(
 );
 
 /// Lays out the screen as the fixed five-region stack from
-/// `docs/design/terminal-ui-layout.md`: Title / Progress / User Choices / Information
-/// Log / Global Menu. The title artwork provides its own lower boundary; ASCII
-/// separator rows divide the remaining regions. Below the minimum terminal size
-/// it draws only a warning and leaves the game UI hidden.
+/// `docs/design/terminal-ui-layout.md`: Title / Information Log / User Choices /
+/// Progress / Global Menu. The first log row leaves a gap below the title; ASCII
+/// separator rows divide every later region. Below the minimum terminal size it
+/// draws only a warning and leaves the game UI hidden.
 pub(crate) fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
@@ -49,26 +52,22 @@ pub(crate) fn render(frame: &mut Frame, app: &App) {
         return;
     }
 
-    // One progress row per active action; keep a 1-row reserve when idle so the
-    // region (and the separators below it) stay put.
-    let progress_h = (app.state.active_quests().count() as u16).max(1);
-
     let [
         title,
-        progress,
+        log_area,
         sep1,
         choices,
         sep2,
-        log_area,
+        progress,
         sep3,
         menu_area,
     ] = Layout::vertical([
         Constraint::Length(TITLE_H),
-        Constraint::Length(progress_h),
+        Constraint::Fill(1),
         Constraint::Length(1),
         Constraint::Length(CHOICES_H),
         Constraint::Length(1),
-        Constraint::Fill(1),
+        Constraint::Length(PROGRESS_H),
         Constraint::Length(1),
         Constraint::Length(MENU_H),
     ])
@@ -95,24 +94,30 @@ fn render_menu(frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(" ESC) Quit"), area);
 }
 
-/// Draws the information log: game events newest at the bottom, older above,
-/// with anything beyond the region height scrolled off the top.
+/// Draws the information log with a permanent blank first row. Game events are
+/// bottom-aligned below it, newest at the bottom and older above, with anything
+/// beyond the available content height scrolled off the top.
 fn render_log(frame: &mut Frame, area: Rect, log: &[String]) {
     let lines = log_lines(log, area.width, area.height).join("\n");
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-/// The last `height` log lines (oldest dropped off the top), each truncated to
-/// `width` chars. Order is preserved, so the newest line is last (it renders on
-/// the bottom row of the top-aligned block).
+/// Exactly `height` rows for the log region. The first row is reserved as the
+/// title gap. The remaining rows are padded above the visible entries so the
+/// last log line is always on the region's bottom row. Entries are truncated to
+/// `width`, and older entries beyond the available rows are dropped.
 fn log_lines(log: &[String], width: u16, height: u16) -> Vec<String> {
     let width = width as usize;
-    let take = height as usize;
+    let height = height as usize;
+    let take = height.saturating_sub(LOG_GAP_H as usize);
     let start = log.len().saturating_sub(take);
-    log[start..]
-        .iter()
-        .map(|line| line.chars().take(width).collect())
-        .collect()
+    let mut rows = vec![String::new(); height.saturating_sub(log.len() - start)];
+    rows.extend(
+        log[start..]
+            .iter()
+            .map(|line| line.chars().take(width).collect()),
+    );
+    rows
 }
 
 /// Centered warning shown when the terminal is smaller than `80x24`.
@@ -235,16 +240,24 @@ mod tests {
     fn log_lines_keep_the_newest_and_truncate() {
         let log: Vec<String> = (0..5).map(|i| format!("event number {i}")).collect();
 
-        // Only the last `height` lines survive, newest last.
-        let lines = log_lines(&log, 80, 3);
-        assert_eq!(lines.len(), 3);
-        assert_eq!(lines.first().unwrap(), "event number 2"); // older scrolled off
+        // One row stays blank below the title, so only the last three events fit.
+        let lines = log_lines(&log, 80, 4);
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines.first().unwrap(), "");
+        assert_eq!(lines[1], "event number 2"); // older scrolled off
         assert_eq!(lines.last().unwrap(), "event number 4"); // newest is last
 
         // Long lines are cut to the width.
-        let wide = log_lines(&log, 5, 3);
+        let wide = log_lines(&log, 5, 4);
         assert!(wide.iter().all(|l| l.chars().count() <= 5));
         assert_eq!(wide.last().unwrap(), "event");
+    }
+
+    #[test]
+    fn log_lines_bottom_align_short_logs_below_the_title_gap() {
+        let lines = log_lines(&["latest".to_string()], 80, 5);
+
+        assert_eq!(lines, vec!["", "", "", "", "latest"]);
     }
 
     #[test]
@@ -289,14 +302,32 @@ mod tests {
         }
         assert!(
             !rows[TITLE_H as usize].contains("+----+"),
-            "title should lead directly into progress"
+            "title should lead directly into the blank log row"
         );
         assert!(
-            rows[TITLE_H as usize + 1].contains("+----+"),
-            "progress separator should remain"
+            rows[7].contains("+----+"),
+            "log separator should follow the four-row minimum log region"
         );
+        assert!(rows[3].trim().is_empty(), "first log row should be blank");
+        assert!(rows[15].contains("+----+"), "choices separator moved");
+        assert!(rows[22].contains("+----+"), "progress separator moved");
         assert!(screen.contains("ESC) Quit"), "missing global menu");
         assert!(screen.contains("+----+"), "missing separators");
+    }
+
+    #[test]
+    fn extra_terminal_height_is_assigned_only_to_the_log() {
+        let mut app = App::new();
+        app.log = vec!["latest event".to_string()];
+
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT + 5, &app);
+
+        assert!(rows[3].trim().is_empty(), "title gap must remain one row");
+        assert_eq!(rows[11].trim(), "latest event");
+        assert!(rows[12].contains("+----+"), "log should receive five rows");
+        assert!(rows[20].contains("+----+"), "choices must stay seven rows");
+        assert!(rows[27].contains("+----+"), "progress must stay six rows");
+        assert!(rows[28].contains("ESC) Quit"), "menu must remain last");
     }
 
     #[test]
