@@ -1,11 +1,11 @@
 //! Rendering: the pure projection from [`App`] state onto a terminal buffer.
 //!
 //! This module owns the fixed five-region stack from
-//! `docs/terminal-ui-layout.md` (Title / Progress / User Choices / Information
+//! `docs/design/terminal-ui-layout.md` (Title / Progress / User Choices / Information
 //! Log / Global Menu) and the ASCII chrome between regions. The two larger
 //! regions live in submodules: [`progress`] and [`choices`]. Renderers never
 //! mutate game state or read input, so they can be exercised with a
-//! `TestBackend` (see `docs/design-docs/tui-test-policy.md`).
+//! `TestBackend` (see `docs/design/tui-test-policy.md`).
 
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
@@ -17,7 +17,7 @@ mod choices;
 mod progress;
 
 /// Minimum supported terminal size. Below this the game shows a warning and
-/// refuses to draw its UI (see `docs/terminal-ui-layout.md`).
+/// refuses to draw its UI (see `docs/design/terminal-ui-layout.md`).
 const MIN_WIDTH: u16 = 80;
 const MIN_HEIGHT: u16 = 24;
 /// Fixed heights (rows) of the title, user-choices, and global-menu regions.
@@ -28,7 +28,7 @@ const CHOICES_H: u16 = 10;
 const MENU_H: u16 = 1;
 
 /// Lays out the screen as the fixed five-region stack from
-/// `docs/terminal-ui-layout.md`: Title / Progress / User Choices / Information
+/// `docs/design/terminal-ui-layout.md`: Title / Progress / User Choices / Information
 /// Log / Global Menu, with an ASCII separator row between each region. Below the
 /// minimum terminal size it draws only a warning and leaves the game UI hidden.
 pub(crate) fn render(frame: &mut Frame, app: &App) {
@@ -126,7 +126,7 @@ fn render_separator(frame: &mut Frame, area: Rect) {
 /// Builds a full-width separator like
 /// `+------+----+------+`: a `+` at each end, a fixed `+----+` anchor in the
 /// middle, and `-` fill on both sides. At 80 columns each side is 36 dashes,
-/// reproducing the example in `docs/terminal-ui-layout.md`.
+/// reproducing the example in `docs/design/terminal-ui-layout.md`.
 fn separator(width: u16) -> String {
     let w = width as usize;
     // The frame (`+`...`+----+`...`+`) needs 8 non-fill columns; below that just

@@ -8,7 +8,7 @@
 `crates/tui/src/main.rs` had grown to ~844 lines — the terminal lifecycle, the
 wall-clock frame loop, input handling, the five-region render dispatch, and the
 two larger render regions (progress rows, user choices) all in one file, with
-every test appended at the bottom. `docs/design-docs/tui-test-policy.md` had
+every test appended at the bottom. `docs/design/tui-test-policy.md` had
 already named the exit criterion in its "Near-Term Recommendations": extract an
 `App` type, move progression into `App::update`, keep `run()` thin, and split
 input into a *translate* layer and a *behaviour* layer. It had outgrown one file,
@@ -49,7 +49,7 @@ and a thin `run()` loop: draw → poll → `app.update(input::translate(event))`
 
 ## Related
 
-- Enacts recommendations 1–5 of `docs/design-docs/tui-test-policy.md` (now
+- Enacts recommendations 1–5 of `docs/design/tui-test-policy.md` (now
   marked Accepted); the App/Input/render seam is the shape that document
   prescribed.
 - Mirrors [ADR 0009](0009-core-module-structure.md): split once a crate outgrows

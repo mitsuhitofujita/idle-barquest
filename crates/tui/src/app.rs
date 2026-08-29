@@ -4,7 +4,7 @@
 //! and the information log. [`App::update`] applies one translated [`Input`] and
 //! [`App::advance`] steps the simulation, turning completion events into log
 //! lines. Neither reads the wall clock nor the terminal, so both can be driven
-//! directly from tests (see `docs/design-docs/tui-test-policy.md`).
+//! directly from tests (see `docs/design/tui-test-policy.md`).
 
 use barquest_core::{Catalog, GameEvent, GameState, TargetId};
 

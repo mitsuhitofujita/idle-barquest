@@ -2,7 +2,7 @@
 //! reacts to. Keeping this separate from behaviour (see [`crate::app`]) lets the
 //! menu/state logic be tested without constructing terminal events, and keeps
 //! most of the code independent of `crossterm` details (see
-//! `docs/design-docs/tui-test-policy.md`).
+//! `docs/design/tui-test-policy.md`).
 
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 

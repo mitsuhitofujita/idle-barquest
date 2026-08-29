@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-06-20
 - Updated: 2026-06-21 — the App/Input/render split below is implemented; see
-  [ADR 0010](../adr/0010-tui-module-structure.md).
+  [Decision 0010](../decisions/0010-tui-module-structure.md).
 
 ## Purpose
 
@@ -255,7 +255,7 @@ gate unless they are proven reliable in CI.
 
 ## Near-Term Recommendations
 
-Recommendations 1–5 are implemented as of 2026-06-21 (ADR 0010); 6 is ongoing.
+Recommendations 1–5 are implemented as of 2026-06-21 (Decision 0010); 6 is ongoing.
 
 1. ~~Extract TUI state from `main.rs` into an `App` type.~~ Done — `app::App`.
 2. ~~Move menu/quest progression into `App::update(input, elapsed)`.~~ Done —
@@ -274,3 +274,10 @@ Recommendations 1–5 are implemented as of 2026-06-21 (ADR 0010); 6 is ongoing.
 
 This gives the project fast feedback for almost all behavior while reserving
 real terminal tests for the small amount of code that truly needs a terminal.
+
+## Related decisions
+
+- [Decision 0002: ratatui and crossterm for the TUI](../decisions/0002-ratatui-crossterm-for-tui.md)
+- [Decision 0004: Tick-based time model](../decisions/0004-tick-time-model.md)
+- [Decision 0008: Full-screen TUI layout and events](../decisions/0008-full-screen-tui-layout-and-events.md)
+- [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)

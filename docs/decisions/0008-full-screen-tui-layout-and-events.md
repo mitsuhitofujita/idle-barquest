@@ -6,7 +6,7 @@
 ## Context
 
 ADR 0006 rendered the TUI as a loose `apt`/`mise` stack of inline bars with a
-first-letter hotkey menu and finished bars resting at 100%. `docs/terminal-ui-layout.md`
+first-letter hotkey menu and finished bars resting at 100%. `docs/design/terminal-ui-layout.md`
 was then added as the source of truth for layout and asks for a stable, vi-style
 **full-screen** screen instead: fixed regions, ASCII-only chrome, a minimum size,
 and numbered selection. This is an idle RPG where a target — especially a
@@ -42,4 +42,4 @@ completion in the Information Log instead of leaving a 100% bar.
   [ADR 0005](0005-command-menu-input-model.md) (first-letter hotkeys).
 - Builds on [ADR 0007](0007-data-driven-content-model.md) (catalog/state split)
   and [ADR 0004](0004-tick-time-model.md) (tick-driven `advance`).
-- Implements `docs/terminal-ui-layout.md`.
+- Implements `docs/design/terminal-ui-layout.md`.

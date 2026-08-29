@@ -1,5 +1,9 @@
 # Terminal UI Layout
 
+- Status: Current
+- Date: 2026-06-21
+- Updated: 2026-08-29
+
 This document defines the terminal UI layout requirements for `IDLE BARQUEST`.
 It is written as an implementation-oriented reference for AI agents and developers.
 
@@ -193,3 +197,9 @@ When implementing or modifying the UI, preserve these invariants:
 - Important state is not color-only.
 - The title and global menu remain fixed.
 - The user choices region is limited to 10 rows for now.
+
+## Related decisions
+
+- [Decision 0002: ratatui and crossterm for the TUI](../decisions/0002-ratatui-crossterm-for-tui.md)
+- [Decision 0008: Full-screen TUI layout and events](../decisions/0008-full-screen-tui-layout-and-events.md)
+- [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)

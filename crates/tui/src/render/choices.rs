@@ -1,5 +1,5 @@
 //! The User Choices region: the three `Target: | Action: | Times:` columns from
-//! `docs/terminal-ui-layout.md`. Entries are numbered for digit selection.
+//! `docs/design/terminal-ui-layout.md`. Entries are numbered for digit selection.
 
 use barquest_core::{Catalog, GameState};
 use ratatui::Frame;
@@ -10,7 +10,7 @@ use super::fit;
 use crate::app::Menu;
 
 /// Draws the user-choices region: the three `Target: | Action: | Times:` columns
-/// from `docs/terminal-ui-layout.md`. Entries are numbered; the player presses a
+/// from `docs/design/terminal-ui-layout.md`. Entries are numbered; the player presses a
 /// digit to pick within the active column (`>` marks which one), and the chosen
 /// target carries a ` ----->` arrow into the action column.
 pub(super) fn render_choices(

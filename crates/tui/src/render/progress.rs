@@ -1,5 +1,5 @@
 //! The Progress region: one row per active action, each laid out as the six
-//! proportional columns from `docs/terminal-ui-layout.md`, with an `apt`/`mise`
+//! proportional columns from `docs/design/terminal-ui-layout.md`, with an `apt`/`mise`
 //! style text progress bar.
 
 use barquest_core::{Catalog, GameState};
@@ -11,14 +11,14 @@ use super::fit;
 
 /// Draws one row per **active action** (not per target): a facility running two
 /// productions shows two rows. Each row is the six proportional columns from
-/// `docs/terminal-ui-layout.md`. Idle targets contribute no row.
+/// `docs/design/terminal-ui-layout.md`. Idle targets contribute no row.
 pub(super) fn render_progress(frame: &mut Frame, area: Rect, catalog: &Catalog, state: &GameState) {
     let rows = progress_rows(catalog, state, area.width).join("\n");
     frame.render_widget(Paragraph::new(rows).alignment(Alignment::Left), area);
 }
 
 /// Splits a full row width into the six progress columns from
-/// `docs/terminal-ui-layout.md` — Target 20% / Action 20% / Times 10% /
+/// `docs/design/terminal-ui-layout.md` — Target 20% / Action 20% / Times 10% /
 /// Progress Bar 30% / Sub Action 10% / Sub Progress Bar 10% — as integer cell
 /// counts. The remainder from rounding is given to the last column so the parts
 /// always sum back to `width`.

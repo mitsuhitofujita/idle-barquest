@@ -1,10 +1,11 @@
 # Design: Architecture Overview
 
-- Status: Draft
+- Status: Current
 - Date: 2026-06-20
+- Updated: 2026-08-29
 
 A lightweight map of the project. For the *why* behind each choice, see the
-[ADRs](../adr/).
+[decisions](../decisions/).
 
 ## Goal
 
@@ -45,16 +46,16 @@ Data-driven command loop working: `core` models tick progression (`Progress`,
 (`TargetTemplate` / `ActionTemplate` keyed by string ids; `builtin()` seeds
 Hero/Adventurer/Farmer + Forest Exploration) and a `GameState` of live
 `TargetInstance`s, each holding multiple concurrent `quests`, with `spawn_target`
-/ `unlock_action` / `assign_action` / `advance` (see ADR 0007). `advance` returns
+/ `unlock_action` / `assign_action` / `advance` (see Decision 0007). `advance` returns
 `GameEvent`s and removes finished quests. `core` is split into `time` / `id` /
 `catalog` / `state` modules, with the public API re-exported flat from the crate
-root (see ADR 0009). The `tui` is split into `app` (live state + behaviour),
+root (see Decision 0009). The `tui` is split into `app` (live state + behaviour),
 `input` (event translation), and `render` (the five-region projection) modules,
-with `main` keeping only the loop and terminal lifecycle (see ADR 0010); it runs
+with `main` keeping only the loop and terminal lifecycle (see Decision 0010); it runs
 one non-blocking, frame-paced loop and renders the fixed five-region full-screen
 layout from
-`docs/terminal-ui-layout.md` — Title / Progress / User Choices / Information Log /
-Global Menu, ASCII separators, an 80x24 minimum-size guard (see ADR 0008). The
+`docs/design/terminal-ui-layout.md` — Title / Progress / User Choices / Information Log /
+Global Menu, ASCII separators, an 80x24 minimum-size guard (see Decision 0008). The
 Progress region shows one `[===>---] NN%` bar per active action; the player
 selects a target then an action by number in the three-column choices panel
 (`1) Hero ----->`); completions surface in the log. `balance-sim` runs the same
@@ -75,3 +76,12 @@ model headless. Build/run/test/lint/fmt all pass in the dev container.
 Networking/multiplayer and a content authoring pipeline (loading the `Catalog`
 from external data files) — the in-memory data-driven model and JSON save/load
 land first; external authoring comes later.
+
+## Related decisions
+
+- [Decision 0001: Cargo workspace layout](../decisions/0001-cargo-workspace-layout.md)
+- [Decision 0004: Tick-based time model](../decisions/0004-tick-time-model.md)
+- [Decision 0007: Data-driven content model](../decisions/0007-data-driven-content-model.md)
+- [Decision 0008: Full-screen TUI layout and events](../decisions/0008-full-screen-tui-layout-and-events.md)
+- [Decision 0009: Core module structure](../decisions/0009-core-module-structure.md)
+- [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)
