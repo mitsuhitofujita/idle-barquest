@@ -46,7 +46,7 @@ The screen is divided vertically into the following regions, in this fixed order
 4. Information Log
 5. Global Menu
 
-The title region is always 1 row.
+The title region is always 3 rows.
 
 The global menu region is always 1 row.
 
@@ -64,7 +64,12 @@ Text must not wrap inside fixed-height regions. If a label or value is too long 
 
 ## Separators
 
-Place a separator row between panels.
+The title artwork's bottom row serves as the visual boundary between the Title
+and Progress regions. Do not add a full-width separator below the title.
+
+Place a separator row between each of the remaining region pairs: Progress and
+User Choices, User Choices and Information Log, and Information Log and Global
+Menu.
 
 Separators should be built from standard ASCII characters. They should include visual marks at the left side, center, and right side.
 
@@ -82,14 +87,17 @@ Each column should reserve 1 leading space before its text.
 
 Most column text should be left-aligned.
 
-The title text is an exception and should be centered.
+The title artwork is an exception and should be centered as a fixed-width block.
 
 ## Title Region
 
-Display the game title centered on one row:
+Display the following three-line game title centered as a 38-column block. Do
+not stretch its decoration when the terminal grows wider:
 
 ```text
-IDLE BARQUEST
+.@~\::::::::::::::::::::::::::::::/@~.
+(  {        IDLE BARQUEST         }  )
+'@~/::::::::::::::::::::::::::::::\~@'
 ```
 
 The title is a fixed header. It should not change based on the current selection, progress, or game state.
@@ -114,15 +122,23 @@ All progress-region columns must fit on one row. Do not wrap long labels or valu
 The progress bar should use a familiar character-based style when possible:
 
 ```text
-[===>---] 50%
+[===>   ] 50%
 ```
 
 Progress bar characters:
 
 - `=` means completed progress.
 - `>` means the current progress position.
-- `-` means remaining progress.
+- A space means remaining progress.
 - The percentage should appear to the right of the bar.
+
+At the endpoints and midway through a seven-cell bar, the output is:
+
+```text
+[       ]   0%
+[===>   ]  50%
+[=======] 100%
+```
 
 If the progress column is narrow, shorten the bar before removing the percentage. If the content still does not fit, truncate it like other column content.
 

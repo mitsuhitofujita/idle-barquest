@@ -88,10 +88,10 @@ fn progress_cell(ratio: f64, width: usize) -> String {
     format!("{}{suffix}", progress_bar(ratio, cells))
 }
 
-/// Builds an `apt`/`mise`-style bar like `[===>---]` for `ratio` (0.0..=1.0).
+/// Builds an `apt`/`mise`-style bar like `[===>   ]` for `ratio` (0.0..=1.0).
 ///
 /// Filled cells are `=`, the leading edge is `>` while in progress, and the
-/// remainder is `-`. `ratio` is clamped so out-of-range values stay valid.
+/// remainder is blank. `ratio` is clamped so out-of-range values stay valid.
 fn progress_bar(ratio: f64, width: usize) -> String {
     let filled = ((ratio * width as f64).round() as i64).clamp(0, width as i64) as usize;
     let mut bar = String::with_capacity(width + 2);
@@ -105,7 +105,7 @@ fn progress_bar(ratio: f64, width: usize) -> String {
         } else if i < filled {
             '=' // last cell of a completed (full) bar
         } else {
-            '-' // not yet reached
+            ' ' // not yet reached
         };
         bar.push(cell);
     }
@@ -119,8 +119,8 @@ mod tests {
     use barquest_core::{ActionId, ActionTemplate, TargetId, TargetTemplate, seconds_to_ticks};
 
     #[test]
-    fn progress_bar_empty_is_all_dashes() {
-        assert_eq!(progress_bar(0.0, 7), "[-------]");
+    fn progress_bar_empty_is_all_spaces() {
+        assert_eq!(progress_bar(0.0, 7), "[       ]");
     }
 
     #[test]
@@ -130,12 +130,12 @@ mod tests {
 
     #[test]
     fn progress_bar_half_shows_leading_edge() {
-        assert_eq!(progress_bar(0.5, 7), "[===>---]");
+        assert_eq!(progress_bar(0.5, 7), "[===>   ]");
     }
 
     #[test]
     fn progress_bar_clamps_out_of_range() {
-        assert_eq!(progress_bar(-1.0, 5), "[-----]");
+        assert_eq!(progress_bar(-1.0, 5), "[     ]");
         assert_eq!(progress_bar(2.0, 5), "[=====]");
     }
 
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn progress_cell_renders_bar_endpoints() {
-        assert!(progress_cell(0.0, 24).contains("[--"));
+        assert!(progress_cell(0.0, 24).starts_with("[  "));
         assert!(progress_cell(0.0, 24).contains("0%"));
         assert!(progress_cell(0.5, 24).contains('>'));
         assert!(progress_cell(0.5, 24).contains("50%"));

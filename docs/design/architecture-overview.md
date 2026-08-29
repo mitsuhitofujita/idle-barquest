@@ -55,8 +55,9 @@ with `main` keeping only the loop and terminal lifecycle (see Decision 0010); it
 one non-blocking, frame-paced loop and renders the fixed five-region full-screen
 layout from
 `docs/design/terminal-ui-layout.md` — Title / Progress / User Choices / Information Log /
-Global Menu, ASCII separators, an 80x24 minimum-size guard (see Decision 0008). The
-Progress region shows one `[===>---] NN%` bar per active action; the player
+Global Menu, a fixed-width three-line ASCII title, separators below the progress
+and later regions, and an 80x24 minimum-size guard (see Decision 0008). The
+Progress region shows one `[===>   ] NN%` bar per active action; the player
 selects a target then an action by number in the three-column choices panel
 (`1) Hero ----->`); completions surface in the log. `balance-sim` runs the same
 model headless. Build/run/test/lint/fmt all pass in the dev container.

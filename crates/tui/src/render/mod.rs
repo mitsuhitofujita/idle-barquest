@@ -2,7 +2,7 @@
 //!
 //! This module owns the fixed five-region stack from
 //! `docs/design/terminal-ui-layout.md` (Title / Progress / User Choices / Information
-//! Log / Global Menu) and the ASCII chrome between regions. The two larger
+//! Log / Global Menu) and the ASCII chrome separating the lower regions. The two larger
 //! regions live in submodules: [`progress`] and [`choices`]. Renderers never
 //! mutate game state or read input, so they can be exercised with a
 //! `TestBackend` (see `docs/design/tui-test-policy.md`).
@@ -21,16 +21,26 @@ mod progress;
 const MIN_WIDTH: u16 = 80;
 const MIN_HEIGHT: u16 = 24;
 /// Fixed heights (rows) of the title, user-choices, and global-menu regions.
-/// The separators between regions are one row each; the information log takes
-/// whatever vertical space is left.
-const TITLE_H: u16 = 1;
+/// The three separators below the progress region are one row each; the
+/// information log takes whatever vertical space is left.
+const TITLE_H: u16 = 3;
 const CHOICES_H: u16 = 10;
 const MENU_H: u16 = 1;
 
+/// Fixed-width title artwork. Every line is 38 single-width ASCII characters.
+const TITLE: &str = concat!(
+    r".@~\::::::::::::::::::::::::::::::/@~.",
+    "\n",
+    r"(  {        IDLE BARQUEST         }  )",
+    "\n",
+    r"'@~/::::::::::::::::::::::::::::::\~@'",
+);
+
 /// Lays out the screen as the fixed five-region stack from
 /// `docs/design/terminal-ui-layout.md`: Title / Progress / User Choices / Information
-/// Log / Global Menu, with an ASCII separator row between each region. Below the
-/// minimum terminal size it draws only a warning and leaves the game UI hidden.
+/// Log / Global Menu. The title artwork provides its own lower boundary; ASCII
+/// separator rows divide the remaining regions. Below the minimum terminal size
+/// it draws only a warning and leaves the game UI hidden.
 pub(crate) fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
@@ -45,17 +55,15 @@ pub(crate) fn render(frame: &mut Frame, app: &App) {
 
     let [
         title,
-        sep1,
         progress,
-        sep2,
+        sep1,
         choices,
-        sep3,
+        sep2,
         log_area,
-        sep4,
+        sep3,
         menu_area,
     ] = Layout::vertical([
         Constraint::Length(TITLE_H),
-        Constraint::Length(1),
         Constraint::Length(progress_h),
         Constraint::Length(1),
         Constraint::Length(CHOICES_H),
@@ -71,17 +79,15 @@ pub(crate) fn render(frame: &mut Frame, app: &App) {
     choices::render_choices(frame, choices, &app.catalog, &app.state, &app.menu);
     render_log(frame, log_area, &app.log);
     render_menu(frame, menu_area);
-    for sep in [sep1, sep2, sep3, sep4] {
+    for sep in [sep1, sep2, sep3] {
         render_separator(frame, sep);
     }
 }
 
-/// Draws the fixed, centered game title. It never reflects game state.
+/// Draws the fixed-width, three-row game title centered in its region. It never
+/// reflects game state or stretches with terminal width.
 fn render_title(frame: &mut Frame, area: Rect) {
-    frame.render_widget(
-        Paragraph::new("IDLE BARQUEST").alignment(Alignment::Center),
-        area,
-    );
+    frame.render_widget(Paragraph::new(TITLE).alignment(Alignment::Center), area);
 }
 
 /// Draws the always-visible global menu: commands valid from any UI state.
@@ -158,9 +164,8 @@ mod tests {
     use crate::app::{App, Menu};
     use barquest_core::{ActionId, TargetId, seconds_to_ticks};
 
-    /// Flattens a `render` pass at `w x h` to a single string of cell symbols so
-    /// we can assert the screen contains the expected pieces, position-agnostic.
-    fn screen_at(w: u16, h: u16, app: &App) -> String {
+    /// Renders at `w x h` and returns one full-width string per terminal row.
+    fn screen_rows_at(w: u16, h: u16, app: &App) -> Vec<String> {
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
 
@@ -170,9 +175,14 @@ mod tests {
             .backend()
             .buffer()
             .content
-            .iter()
-            .map(|cell| cell.symbol())
+            .chunks(w as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
             .collect()
+    }
+
+    /// Flattens a `render` pass so tests can assert content position-agnostically.
+    fn screen_at(w: u16, h: u16, app: &App) -> String {
+        screen_rows_at(w, h, app).concat()
     }
 
     /// Renders at the minimum supported size.
@@ -270,9 +280,21 @@ mod tests {
     #[test]
     fn render_shows_the_five_region_chrome() {
         let app = App::new();
-        let screen = rendered(&app);
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+        let screen = rows.concat();
 
-        assert!(screen.contains("IDLE BARQUEST"), "missing title");
+        let side_padding = " ".repeat(21);
+        for (row, title_line) in rows.iter().take(TITLE_H as usize).zip(TITLE.lines()) {
+            assert_eq!(row, &format!("{side_padding}{title_line}{side_padding}"));
+        }
+        assert!(
+            !rows[TITLE_H as usize].contains("+----+"),
+            "title should lead directly into progress"
+        );
+        assert!(
+            rows[TITLE_H as usize + 1].contains("+----+"),
+            "progress separator should remain"
+        );
         assert!(screen.contains("ESC) Quit"), "missing global menu");
         assert!(screen.contains("+----+"), "missing separators");
     }
