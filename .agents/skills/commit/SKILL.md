@@ -1,21 +1,28 @@
 ---
 name: commit
-description: Create a git commit for staged changes following Conventional Commits specification.
-allowed-tools: Bash(git diff:*), Bash(git log:*), Bash(git commit:*)
+description: Create git commits for changed files following Conventional Commits specification, splitting unrelated changes into multiple meaningful commits.
+allowed-tools: Bash(git add *) Bash(git commit *) Bash(git status *) Bash(git diff *) Bash(git log *) Bash(ls *) Bash(rg *) Read Write Edit
 ---
 
 # Git Commit with Conventional Commits
 
 ## Instructions
 
-1. Run `git diff --staged` to read the staged changes. If there are no staged changes, inform the user and stop.
-2. Run `git log --oneline -5` to understand the recent commit style of the repository.
-3. Analyze the staged changes and generate a commit message following the rules below.
-4. Execute `git commit` with the generated message.
+1. Run `git status` to see all staged, unstaged, and untracked files. If there are no changes at all, inform the user and stop.
+2. Run `git diff` and `git diff --staged` to read the actual content of every change (including already-staged changes).
+3. Run `git log --oneline -5` to understand the recent commit style of the repository.
+4. Group the changed files into logically separate, meaningful units (e.g. by feature, module, or purpose). Do not lump unrelated changes into a single commit, and do not split a single coherent change across multiple commits.
+5. For each group, in order:
+   - Stage only the files belonging to that group with `git add <specific paths>` (never `git add -A` or `git add .`, to avoid accidentally including unrelated or sensitive files).
+   - Before committing, check the files staged in this group aren't sensitive (e.g. `.env`, credentials) — warn the user and skip that file if so.
+   - Generate a commit message for that group following the rules below.
+   - Execute `git commit` with the generated message.
+6. After all groups are committed, run `git log --oneline -N` (N = number of commits created) and `git status` to confirm everything was committed successfully.
 
 ## Commit Message Rules
 
 ### Format (Conventional Commits)
+
 ```
 <type>[optional scope]: <description>
 
@@ -23,6 +30,7 @@ allowed-tools: Bash(git diff:*), Bash(git log:*), Bash(git commit:*)
 ```
 
 ### Types
+
 - `feat`: a new feature
 - `fix`: a bug fix
 - `docs`: documentation only changes
@@ -35,6 +43,7 @@ allowed-tools: Bash(git diff:*), Bash(git log:*), Bash(git commit:*)
 - `chore`: other changes that don't modify src or test files
 
 ### Rules
+
 - Write commit messages in **English**
 - The `description` must start with a **lowercase** letter
 - The `description` must **not** end with a period
@@ -44,6 +53,7 @@ allowed-tools: Bash(git diff:*), Bash(git log:*), Bash(git commit:*)
 - Wrap body at 72 characters
 
 ### Examples
+
 ```
 feat(auth): add OAuth2 login support
 
@@ -60,9 +70,10 @@ was empty, causing crashes in production.
 
 ## Execution
 
-Use a HEREDOC to pass the commit message to `git commit`:
+For each group, stage its files explicitly, then use a HEREDOC to pass the commit message to `git commit`:
 
 ```bash
+git add <path1> <path2> ...
 git commit -m "$(cat <<'EOF'
 <type>[optional scope]: <description>
 
@@ -71,4 +82,4 @@ EOF
 )"
 ```
 
-After committing, show the result of `git log --oneline -1` to confirm the commit was created successfully.
+Repeat for every group. After the last commit, show the result of `git log --oneline -N` (N = number of commits created) to confirm all commits were created successfully.
