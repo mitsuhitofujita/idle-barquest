@@ -3,8 +3,8 @@
 //! Drives the command loop and renders the game state from `barquest-core`.
 //! The world is data-driven: a `Catalog` supplies the target/action templates
 //! and a `GameState` holds the live target instances. The screen is the fixed
-//! five-region layout from `docs/design/terminal-ui-layout.md` (Title, Progress, User
-//! Choices, Information Log, and Global Menu), separated by ASCII rules, and is
+//! five-region layout from `docs/design/terminal-ui-layout.md` (Title, Information
+//! Log, User Choices, Progress, and Global Menu), separated by ASCII rules, and is
 //! hidden behind a warning below the supported `80x24` terminal size. Progress
 //! bars fill **concurrently** like an `apt` / `mise` update. The player picks a
 //! target by letter, then an action by letter, in a progressive user-choices

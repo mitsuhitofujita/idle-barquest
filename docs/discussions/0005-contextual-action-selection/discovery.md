@@ -1,9 +1,9 @@
 ---
 date: 2026-08-29
 tags: [tui, interaction, action-selection]
-status: proposed
-worklogs: []
-decisions: []
+status: decided
+worklogs: [0004-contextual-action-selection]
+decisions: [0013-contextual-action-selection]
 ---
 
 選択方法を見直して。

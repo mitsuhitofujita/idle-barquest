@@ -166,22 +166,54 @@ The `Times` and `Sub Action` concepts are future-facing. Preserve the column res
 
 ## User Choices Region
 
-The user choices region lists available player choices.
+The user choices region presents one selection stage at a time. It does not
+reserve empty columns for stages the player has not reached.
 
 The expected interaction flow is:
 
-1. The player selects a `Target`.
-2. The UI shows the available `Action` choices for that target.
+1. Show only `Target` choices.
+2. After the player selects a target, create an `Action` column to its right.
+3. After the player selects an action, assign it and return to Target selection.
 
-Selection and relationships between choices must not rely on color alone. Use text or ASCII symbols such as arrows.
-
-Example:
+Target selection at `80x24` begins like this:
 
 ```text
-Target:        | Action:      | Times:
- 1) Hero ----->|  1) Forest   |  1) 1
- 2) Explorer   |  2) Sea ---->|  2) 5
+|> Target:
+| a) Hero
+| b) Adventurer
+| c) Farmer
 ```
+
+After selecting Adventurer, the representative rows are:
+
+```text
+|  Target:       |> Action:
+|    Hero        | a) Forest Exploration
+|    Adventurer <|
+|    Farmer      |
+```
+
+Each active column assigns positional ASCII lowercase keys in display order:
+`a)`, `b)`, `c)`, and so on. The corresponding uppercase letter selects the
+same item. Digits do not select choices, and inactive columns do not display
+selection keys.
+
+The Action choices are the intersection of actions unlocked in the current
+game state and actions supported by the selected target's template. Core must
+validate the same constraints when an action is assigned, including rejecting
+unknown target or action ids.
+
+Target labels begin at the sixth character in both stages. During Action
+selection, `<` marks the chosen Target immediately before the Target–Action
+separator. This marker makes the relationship visible without relying on
+color.
+
+The Target column's Action-selection width is derived from the widest Target
+heading or label, plus space for padding and the selected marker. The Action
+column receives the remaining width. If an extremely long Target label would
+consume the row, reserve at least 20 columns for Action and truncate the Target
+cell. During Target selection, do not render the separator or reserve any width
+for Action.
 
 The user choices region is fixed at 7 rows: one column-heading row followed by
 up to 6 choices.
@@ -189,7 +221,12 @@ up to 6 choices.
 For the current implementation, do not handle or display more than 6 choices.
 Do not show page information in the current UI.
 
-Future paging behavior may use the up and down arrow keys. If paging is added later, headings should include page information such as:
+`Times` is not displayed until its gameplay exists. When introduced, it should
+be created as the next selection stage after Action rather than permanently
+occupying an empty column.
+
+Future paging behavior may use the up and down arrow keys. If paging is added
+later, headings should include page information such as:
 
 ```text
 Target: 1/2
@@ -250,3 +287,4 @@ When implementing or modifying the UI, preserve these invariants:
 - [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)
 - [Decision 0011: Terminal visual style](../decisions/0011-terminal-visual-style.md)
 - [Decision 0012: Terminal layout refinement](../decisions/0012-terminal-layout-refinement.md)
+- [Decision 0013: Contextual action selection](../decisions/0013-contextual-action-selection.md)

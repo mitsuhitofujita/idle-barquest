@@ -35,7 +35,7 @@ Scope:
 
 - Tick arithmetic and progress saturation.
 - Completion, rewards, inventory, stats, unlocks, and future save/load behavior.
-- Menu domain rules such as unique hotkeys.
+- Menu domain rules such as unlocked/target-compatible action availability.
 - Balance invariants that should hold across many inputs.
 
 Best practices:
@@ -199,7 +199,7 @@ Translation tests should cover:
 
 - `q`, `Esc`, and `Ctrl-C` quit.
 - Non-press events are ignored.
-- First-letter hotkeys are lowercased.
+- Positional ASCII letter choices are case-insensitive and digits are ignored.
 - Unknown keys are ignored.
 
 Behavior tests should cover:
@@ -266,9 +266,9 @@ Recommendations 1–5 are implemented as of 2026-06-21 (Decision 0010); 6 is ong
    `main.rs` is the frame loop only.
 4. ~~Add renderer tests with `TestBackend` for the current menu and quest
    screens.~~ Done — `render` module tests.
-5. ~~Add input translation tests for quit keys, hotkeys, and ignored events.~~
-   Done — `input` module tests cover `q`/`Esc`/`Ctrl-C`, digits, key releases,
-   and unknown keys.
+5. ~~Add input translation tests for quit keys, positional choices, and ignored
+   events.~~ Done — `input` module tests cover `q`/`Esc`/`Ctrl-C`, lowercase and
+   uppercase letters, ignored digits, key releases, and unknown keys.
 6. Keep existing `core` tests as the main gameplay safety net and expand them as
    rewards/resources are introduced.
 
@@ -281,3 +281,4 @@ real terminal tests for the small amount of code that truly needs a terminal.
 - [Decision 0004: Tick-based time model](../decisions/0004-tick-time-model.md)
 - [Decision 0008: Full-screen TUI layout and events](../decisions/0008-full-screen-tui-layout-and-events.md)
 - [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)
+- [Decision 0013: Contextual action selection](../decisions/0013-contextual-action-selection.md)

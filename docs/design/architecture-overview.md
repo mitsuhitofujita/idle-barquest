@@ -59,10 +59,13 @@ Global Menu, a fixed-width three-line ASCII title, a blank row before the
 bottom-aligned log, fixed 7-row choices and 6-row progress regions, three
 separators below the log, and an 80x24 minimum-size guard (see Decisions 0008 and
 0012). The
-Progress region shows one `[===>   ] NN%` bar per active action; the player
-selects a target then an action by number in the three-column choices panel
-(`1) Hero ----->`); completions surface in the log. `balance-sim` runs the same
-model headless. Build/run/test/lint/fmt all pass in the dev container.
+Progress region shows one `[===>   ] NN%` bar per active action. User Choices
+starts with only the Target column; selecting a target creates an Action column
+containing the intersection of globally unlocked actions and actions supported
+by that target kind. The player selects entries by positional ASCII letters
+(`a)`, `b)`, ...), and core enforces the same unlock and compatibility rules
+when assigning an action. Completions surface in the log. `balance-sim` runs the
+same model headless. Build/run/test/lint/fmt all pass in the dev container.
 
 ## Next steps
 
@@ -70,8 +73,9 @@ model headless. Build/run/test/lint/fmt all pass in the dev container.
   were built for it).
 - Award resources on quest completion (`advance` already emits `GameEvent`s; add
   reward variants and an inventory).
-- Expand the `Catalog`: more targets/actions, per-target stats; wire the reserved
-  Times / Sub Action columns once those features exist.
+- Expand the `Catalog`: more targets/actions and per-target stats; add Times as
+  a later User Choices stage and wire the reserved Progress-region Times / Sub
+  Action columns once those features exist.
 - Flesh out tools (balance sim, save inspector, content validator).
 
 ## Out of scope (for now)
@@ -90,3 +94,4 @@ land first; external authoring comes later.
 - [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)
 - [Decision 0011: Terminal visual style](../decisions/0011-terminal-visual-style.md)
 - [Decision 0012: Terminal layout refinement](../decisions/0012-terminal-layout-refinement.md)
+- [Decision 0013: Contextual action selection](../decisions/0013-contextual-action-selection.md)
