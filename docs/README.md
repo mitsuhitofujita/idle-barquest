@@ -32,16 +32,18 @@ worklog は主にエージェントが将来読み返す資料であり、日本
 
 ```
 docs/discussions/<NNNN-短い説明>/
-├── discovery.md   発見の契機（変更不可）
+├── discovery.md   発見の契機（本文変更不可）
 ├── minutes.md     議事録
 └── proposal.md    合意した提案
 ```
 
-ディレクトリ名は `decisions/` と同じ連番（ディレクトリを作成した順）とし、カテゴリによる階層は作りません。
+ディレクトリ名には `discussions/` 内で独立した4桁の連番（ディレクトリを作成した順）を使い、
+カテゴリによる階層は作りません。`worklogs/` や `decisions/` の番号とは独立しています。
+短い説明には英語の kebab-case を使います。
 分類の判断は、件数がたまって切り口が見えてから行います。
 
 discovery.md を書く時点で短い説明を決める必要はありません。
-`docs/discussions/<NNNN>/discovery.md` と連番だけで作成すれば、`/discuss` が内容を読んだ時点で
+`docs/discussions/<NNNN>/discovery.md` と連番だけで作成すれば、`$discuss` が内容を読んだ時点で
 `NNNN-短い説明` にリネームします。
 
 ### discovery.md
@@ -50,10 +52,11 @@ discovery.md を書く時点で短い説明を決める必要はありません�
 どのコードを読んでいたときか、どの指摘か、どの数値を見て手が止まったか。
 具体的な足がかりが残っていれば、抽象化はエージェントが引き受けられます。
 
-このファイルは追記のみとし、既存の記述を書き換えないでください。
+本文は追記のみとし、既存の記述を書き換えないでください。
 後から整形すると、元の生の感触が失われ、解釈が妥当だったかを検証できなくなります。
 
-冒頭に frontmatter を置きます。タグは後から追加、修正して構いません。
+冒頭の frontmatter は状態と関連資料を追跡するメタデータなので更新して構いません。
+`tags`、`status`、`worklogs`、`decisions` の変更は本文の改変には含めません。
 
 ```markdown
 ---
@@ -61,8 +64,12 @@ date: 2026-08-23
 tags: [auth, dx]
 status: open   # open / proposed / worked / decided / dropped
 worklogs: []      # 対応する worklogs へのリンク
+decisions: []     # 対応する decisions へのリンク
 ---
 ```
+
+frontmatter の関連資料には Markdown URL ではなく、`0003-token-refresh` のような
+ディレクトリ名または拡張子を除いたファイル名を記載します。
 
 ### minutes.md
 
@@ -81,6 +88,12 @@ worklogs: []      # 対応する worklogs へのリンク
 提案は提案時点の判断の記録であり、事後の知識で上書きすると意味を失います。
 ずれは worklogs 側に書きます。
 
+議論そのものを取り下げる場合は `proposal.md` を作らず、`minutes.md` に見送った理由を残して
+`discovery.md` の status を `dropped` にします。discussion 自体は削除しません。
+
+このモデルへの移行前に作られた proposal には `discovery.md` や `minutes.md` がない場合があります。
+存在しなかった履歴を遡って作らず、関連する skill は存在する資料だけを読みます。
+
 ## worklogs/
 
 実装の単位ごとに記録します。計画ではなく、やったことと、その過程で起きたことです。
@@ -90,13 +103,18 @@ docs/worklogs/<NNNN-短い説明>/
 └── plan.md
 ```
 
-ディレクトリ名は `discussions/` や `decisions/` と同じ連番（ディレクトリを作成した順）とします。
+ディレクトリ名には `worklogs/` 内で独立した4桁の連番（ディレクトリを作成した順）を使います。
+`discussions/` や `decisions/` の番号とは独立しています。
+短い説明には英語の kebab-case を使います。
 
 実装中に生まれた検証スクリプトやログの断片も、同じディレクトリに置いて構いません。
 
 frontmatter で、対応する discussions と decisions を相互に参照します。
 一つの提案が複数の worklogs に分かれることも、複数の提案が一つの worklogs に合流することもあるため、
 関係はディレクトリ構造ではなくリンクで表現します。
+
+関連資料の配列には Markdown URL ではなく、`0003-token-refresh` のような
+ディレクトリ名または拡張子を除いたファイル名を記載します。
 
 ```markdown
 ---
@@ -111,13 +129,19 @@ pr: null
 実装が終わったら、何をしたかと、どのような困難があったかを追記してください。
 想定と違った点があれば、そこが最も価値のある記述です。
 
+実装が完了したら、対応する `discovery.md` の status を `worked` にします。
+worklog の status は `$decide` が呼ばれるまで `in-progress` のままです。
+
+作業を明示的に中止した場合は、理由を記録して worklog の status を `abandoned` にします。
+提案全体も取り下げると明示された場合に限り、対応する discovery を `dropped` にします。
+
 ### 困難は次の起点になる
 
 実装中にぶつかった困難は、たいてい設計や前提の歪みが露出した瞬間です。
 つまり、最も質の高い発見の契機でもあります。
 
 記録した困難のうち、単発の事故ではなく構造の問題に見えるものは、
-新しい `discovery.md` として起こし直してください。
+エージェントが新しい discovery にするか確認し、人間が新しい `discovery.md` として起こし直します。
 この経路があることで、流れは直線ではなく循環になります。
 
 ## decisions/
@@ -125,16 +149,22 @@ pr: null
 決定の記録を英語で置きます。追記のみで、過去の決定文書は書き換えません。
 判断が覆った場合は、新しい決定を追加し、古い方の status を変更して相互にリンクします。
 
-ファイル名は `NNNN-short-title.md` の連番とします。
+ファイル名は `NNNN-short-title.md` とし、`decisions/` 内で独立した4桁の連番を使います。
 
-反映の起点は `/decide` の実行です。開発初期の現在はプルリクエストもマージも介さず
-main に直接コミットする運用のため、`/decide` を呼び出した時点で worklogs の status を
-`merged` にし、decision を起こします。
+反映の起点は `$decide` の実行です。開発初期の現在はプルリクエストもマージも介さず
+main に直接コミットする運用のため、`$decide` を呼び出した時点で worklogs の status を
+`merged` にし、decision を起こします。対応する discovery が存在する場合は status を
+`decided` にします。discussion を伴わない worklog では discovery を作成も更新もしません。
 
 `proposal.md` の内容をそのまま移すのではなく、決定事項とその理由に絞って要約してください。
 検討の過程は discussions に、実装の実際は worklogs に残っているため、ここで繰り返す必要はありません。
 
-先頭に、対応する discussions と worklogs へのリンクを必ず記載します。
+各 decision はタイトルに続けて `Status`、`Date`、対応する discussions と worklogs へのリンクを記載し、
+`Decision` と `Rationale` を中心に短くまとめます。新規作成時の status は `Accepted` です。
+discussion を伴わない worklog から作る場合は、存在しない discussion へのリンクを作りません。
+
+decision の識別子は worklog の `decisions` と、存在する各 discovery の `decisions` に追加します。
+一つの worklog が複数の discussions を参照している場合は、すべてを更新します。
 
 このモデルの導入前に作られ、対応する discussions や worklogs が存在しない決定文書は例外です。
 存在しなかった履歴を遡って作らず、リンクのないまま移行してください。
@@ -147,13 +177,17 @@ main に直接コミットする運用のため、`/decide` を呼び出した�
 各文書の末尾に、その設計に至った decisions へのリンクを並べてください。
 現況から履歴へ降りていける経路がないと、なぜ前の設計から変わったのかを追えなくなります。
 
+既存の `Related decisions` 節がある場合はそこへ追記し、同じリンクを重複させないでください。
+節がない場合だけ文書の末尾に作ります。
+
 ## 流れ
 
 `discovery.md` を書く。エージェントと議論し `minutes.md` に残す。
 合意できたら `proposal.md` を作る。ここまでが discussions です。
 
-proposal から worklogs を起こして実装し、終わったら結果と困難を追記します。
-`/decide` を呼んだら decisions に英語で記録し、現況が変わったなら design を書き換えます。
+proposal から worklogs を起こして実装し、終わったら結果と困難を追記して
+discovery の status を `worked` にします。
+`$decide` を呼んだら decisions に英語で記録し、現況が変わったなら design を書き換えます。
 
 困難から新しい discovery が生まれたなら、そこからまた一周します。
 
@@ -169,9 +203,9 @@ proposal から worklogs を起こして実装し、終わったら結果と困�
 ## 忘れやすい点
 
 提案が実装まで到達したとき、対応する decision を書き忘れる事故が最も起きやすいので、
-実装が main に反映されたら、忘れずに `/decide` を呼んでください。
+実装が main に反映されたら、忘れずに `$decide` を呼んでください。
 
-リンクは双方向に張ります。decision から元の議論へ、議論から結果の decision へ。
+リンクは双方向に張ります。decision から元の議論へ、discovery の `decisions` から結果の decision へ。
 片方向だと、あの違和感が結局どうなったのかを後から辿れなくなります。
 
 採用しなかった提案も削除しないでください。
