@@ -15,6 +15,9 @@ pub struct TargetTemplate {
     pub id: TargetId,
     /// English display name, e.g. `"Hero"`.
     pub label: String,
+    /// Actions this kind of target can perform. Runtime availability is the
+    /// intersection of this list and the live state's unlocked actions.
+    pub actions: Vec<ActionId>,
 }
 
 impl TargetTemplate {
@@ -23,12 +26,20 @@ impl TargetTemplate {
         Self {
             id: id.into(),
             label: label.into(),
+            actions: Vec::new(),
         }
     }
 
-    /// First-letter selection key (the label's first char, ASCII-lowercased).
-    pub fn hotkey(&self) -> char {
-        first_hotkey(&self.label)
+    /// Adds one compatible action to this target definition.
+    pub fn with_action(mut self, action: impl Into<ActionId>) -> Self {
+        self.actions.push(action.into());
+        self
+    }
+
+    /// Whether this target kind can perform `action`, independently of whether
+    /// it has been unlocked in a particular saved game.
+    pub fn supports(&self, action: &ActionId) -> bool {
+        self.actions.contains(action)
     }
 }
 
@@ -52,11 +63,6 @@ impl ActionTemplate {
             label: label.into(),
             goal_ticks,
         }
-    }
-
-    /// First-letter selection key (the label's first char, ASCII-lowercased).
-    pub fn hotkey(&self) -> char {
-        first_hotkey(&self.label)
     }
 }
 
@@ -83,9 +89,14 @@ impl Catalog {
     /// order, so this reproduces the previous hard-coded behaviour exactly.
     pub fn builtin() -> Self {
         let mut catalog = Self::new();
-        catalog.register_target(TargetTemplate::new("hero", "Hero"));
-        catalog.register_target(TargetTemplate::new("adventurer", "Adventurer"));
-        catalog.register_target(TargetTemplate::new("farmer", "Farmer"));
+        catalog
+            .register_target(TargetTemplate::new("hero", "Hero").with_action("forest_exploration"));
+        catalog.register_target(
+            TargetTemplate::new("adventurer", "Adventurer").with_action("forest_exploration"),
+        );
+        catalog.register_target(
+            TargetTemplate::new("farmer", "Farmer").with_action("forest_exploration"),
+        );
         catalog.register_action(ActionTemplate::new(
             "forest_exploration",
             "Forest Exploration",
@@ -125,15 +136,6 @@ impl Catalog {
     pub fn actions(&self) -> impl Iterator<Item = &ActionTemplate> {
         self.actions.iter()
     }
-}
-
-/// Derives a menu hotkey from a label: its first char, ASCII-lowercased.
-fn first_hotkey(label: &str) -> char {
-    label
-        .chars()
-        .next()
-        .map(|c| c.to_ascii_lowercase())
-        .unwrap_or(' ')
 }
 
 #[cfg(test)]
@@ -188,51 +190,12 @@ mod tests {
     }
 
     #[test]
-    fn target_hotkeys_are_unique() {
-        // First-letter hotkeys must not collide within the seeded target menu
-        // (ADR 0005): Hero/Adventurer/Farmer -> h/a/f. With data-driven content
-        // this is no longer a compile-time guarantee but a property of the
-        // shipped pool; resolving collisions in runtime-registered content is
-        // future work.
+    fn builtin_targets_support_the_shipped_action() {
         let catalog = Catalog::builtin();
-        let mut keys: Vec<char> = catalog.targets().map(|t| t.hotkey()).collect();
-        keys.sort_unstable();
-        let count = keys.len();
-        keys.dedup();
-        assert_eq!(keys.len(), count, "target hotkeys collide: {keys:?}");
-    }
-
-    #[test]
-    fn hotkeys_are_derived_from_labels() {
-        let catalog = Catalog::builtin();
-        assert_eq!(
-            catalog.target(&TargetId::new("hero")).unwrap().hotkey(),
-            'h'
-        );
-        assert_eq!(
-            catalog
-                .action(&ActionId::new("forest_exploration"))
-                .unwrap()
-                .hotkey(),
-            'f'
-        );
+        let forest = ActionId::new("forest_exploration");
         for target in catalog.targets() {
-            let first = target.label.chars().next().map(|c| c.to_ascii_lowercase());
-            assert_eq!(Some(target.hotkey()), first);
+            assert!(target.supports(&forest));
         }
-        for action in catalog.actions() {
-            let first = action.label.chars().next().map(|c| c.to_ascii_lowercase());
-            assert_eq!(Some(action.hotkey()), first);
-        }
-    }
-
-    #[test]
-    fn first_hotkey_of_empty_label_is_space() {
-        // An empty label has no first char, so the hotkey falls back to a space.
-        // The built-in pool never does this, but the helper must stay total.
-        assert_eq!(first_hotkey(""), ' ');
-        assert_eq!(TargetTemplate::new("blank", "").hotkey(), ' ');
-        assert_eq!(ActionTemplate::new("blank", "", 1).hotkey(), ' ');
     }
 
     #[test]

@@ -58,9 +58,9 @@ impl App {
         false
     }
 
-    /// Pick a target by number, then an action by number, which (re)starts that
-    /// target's quest. The digit indexes the numbered list shown in the active
-    /// choices column. Out-of-range indices are ignored.
+    /// Pick a target by letter, then an available action by letter, which
+    /// (re)starts that target's quest. The letter indexes the active choices
+    /// column. Out-of-range indices are ignored.
     fn select(&mut self, idx: usize) {
         match &self.menu {
             Menu::SelectTarget => {
@@ -71,7 +71,12 @@ impl App {
             Menu::SelectAction { target } => {
                 // Clone the chosen instance id out so we can reassign `menu` below.
                 let target = target.clone();
-                if let Some(action) = self.state.unlocked_actions.get(idx).cloned() {
+                let action = self
+                    .state
+                    .available_actions(&self.catalog, &target)
+                    .nth(idx)
+                    .cloned();
+                if let Some(action) = action {
                     self.state.assign_action(&self.catalog, &target, &action);
                     self.menu = Menu::SelectTarget;
                 }
@@ -106,10 +111,10 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use barquest_core::{ActionId, seconds_to_ticks};
+    use barquest_core::{ActionId, ActionTemplate, TargetTemplate, seconds_to_ticks};
 
     #[test]
-    fn selecting_a_target_number_opens_its_action_menu() {
+    fn selecting_a_target_letter_opens_its_action_menu() {
         let mut app = App::new();
 
         // Select(1) picks the second target (Adventurer).
@@ -121,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn selecting_an_action_number_assigns_and_returns() {
+    fn selecting_an_action_letter_assigns_and_returns() {
         let mut app = App::new();
         let hero = TargetId::new("hero");
         app.menu = Menu::SelectAction {
@@ -138,6 +143,38 @@ mod tests {
         let target = app.state.targets.iter().find(|t| t.id == hero).unwrap();
         assert_eq!(target.quests.len(), 1);
         assert_eq!(target.quests[0].action, ActionId::new("forest_exploration"));
+    }
+
+    #[test]
+    fn action_letter_indexes_only_actions_available_to_the_target() {
+        let mut catalog = Catalog::new();
+        catalog.register_target(TargetTemplate::new("hero", "Hero").with_action("explore"));
+        catalog.register_target(TargetTemplate::new("farmer", "Farmer").with_action("farm"));
+        catalog.register_action(ActionTemplate::new("explore", "Explore", 100));
+        catalog.register_action(ActionTemplate::new("farm", "Farm", 100));
+        let state = GameState::seeded(&catalog);
+        let farmer = TargetId::new("farmer");
+        let mut app = App {
+            catalog,
+            state,
+            menu: Menu::SelectAction {
+                target: farmer.clone(),
+            },
+            log: Vec::new(),
+        };
+
+        // `a` is index 0 in the filtered Farmer menu, even though `farm` is
+        // second in the global unlocked-action order.
+        app.update(Input::Select(0));
+
+        let farmer = app
+            .state
+            .targets
+            .iter()
+            .find(|target| target.id == farmer)
+            .unwrap();
+        assert_eq!(farmer.quests.len(), 1);
+        assert_eq!(farmer.quests[0].action, ActionId::new("farm"));
     }
 
     #[test]

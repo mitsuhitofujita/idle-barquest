@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn progress_rows_truncate_a_long_action_label() {
         let mut catalog = Catalog::new();
-        catalog.register_target(TargetTemplate::new("hero", "Hero"));
+        catalog.register_target(TargetTemplate::new("hero", "Hero").with_action("expedition"));
         catalog.register_action(ActionTemplate::new(
             "expedition",
             "Extremely Long Dungeon Expedition Name",

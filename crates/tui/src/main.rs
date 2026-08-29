@@ -7,9 +7,9 @@
 //! Choices, Information Log, and Global Menu), separated by ASCII rules, and is
 //! hidden behind a warning below the supported `80x24` terminal size. Progress
 //! bars fill **concurrently** like an `apt` / `mise` update. The player picks a
-//! target by number, then an action by number, in the three-column user-choices
-//! panel (`>` marks the active column; the chosen target shows a ` ----->`
-//! arrow); `q` / `Esc` / `Ctrl-C` quits from any screen.
+//! target by letter, then an action by letter, in a progressive user-choices
+//! panel (`>` marks the active column; `<` marks the chosen target); `q` / `Esc`
+//! / `Ctrl-C` quits from any screen.
 //!
 //! The binary is split into three concerns: [`app`] owns the mutable game state
 //! and its behaviour, [`input`] translates terminal events into intent, and

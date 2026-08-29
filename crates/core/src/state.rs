@@ -40,7 +40,7 @@ pub enum GameEvent {
 /// spawned from, and the actions it is currently running.
 ///
 /// `id` is unique per instance while `template_id` says what kind it is; for
-/// today's one-of-each world they happen to be equal. Label/hotkey lookups must
+/// today's one-of-each world they happen to be equal. Label lookups must
 /// always go through `template_id`. A dedicated `InstanceId` type is the natural
 /// upgrade once duplicates become common.
 ///
@@ -123,10 +123,24 @@ impl GameState {
         true
     }
 
+    /// Iterates the unlocked actions supported by one target instance, keeping
+    /// the global unlock order used by the menu.
+    pub fn available_actions<'a>(
+        &'a self,
+        catalog: &'a Catalog,
+        instance: &TargetId,
+    ) -> impl Iterator<Item = &'a ActionId> {
+        let target = self.targets.iter().find(|target| &target.id == instance);
+        let template = target.and_then(|target| catalog.target(&target.template_id));
+        self.unlocked_actions
+            .iter()
+            .filter(move |action| template.is_some_and(|target| target.supports(action)))
+    }
+
     /// Assigns (or restarts) an action on a target instance, seeding a fresh
     /// [`Progress`] from the action template's `goal_ticks`. Returns `false` if
-    /// the action or the instance id is unknown. The menu guarantees the action
-    /// is unlocked, so only catalog membership is validated here.
+    /// the action or the instance id is unknown, the action is locked, or the
+    /// target kind does not support it.
     ///
     /// A target may run several actions at once, but never the same action
     /// twice: if it is already running, its progress is reset (a restart);
@@ -137,13 +151,28 @@ impl GameState {
         instance: &TargetId,
         action: &ActionId,
     ) -> bool {
-        let Some(template) = catalog.action(action) else {
+        let Some(action_template) = catalog.action(action) else {
             return false;
         };
-        let goal = template.goal_ticks;
-        let Some(target) = self.targets.iter_mut().find(|t| &t.id == instance) else {
+        if !self.unlocked_actions.contains(action) {
+            return false;
+        }
+        let Some(target_index) = self
+            .targets
+            .iter()
+            .position(|target| &target.id == instance)
+        else {
             return false;
         };
+        let Some(target_template) = catalog.target(&self.targets[target_index].template_id) else {
+            return false;
+        };
+        if !target_template.supports(action) {
+            return false;
+        }
+
+        let goal = action_template.goal_ticks;
+        let target = &mut self.targets[target_index];
         match target.quests.iter_mut().find(|q| &q.action == action) {
             Some(quest) => quest.progress = Progress::new(goal),
             None => target.quests.push(Quest {
@@ -300,6 +329,45 @@ mod tests {
     }
 
     #[test]
+    fn available_and_assignable_actions_require_unlock_and_target_support() {
+        let mut catalog = Catalog::new();
+        catalog
+            .register_target(TargetTemplate::new("hero", "Hero").with_action("forest_exploration"));
+        catalog.register_target(TargetTemplate::new("farm", "Farm").with_action("farming"));
+        catalog.register_action(ActionTemplate::new(
+            "forest_exploration",
+            "Forest Exploration",
+            seconds_to_ticks(10),
+        ));
+        catalog.register_action(ActionTemplate::new(
+            "farming",
+            "Farming",
+            seconds_to_ticks(10),
+        ));
+        let mut state = GameState::seeded(&catalog);
+        let hero = TargetId::new("hero");
+        let farm = TargetId::new("farm");
+        let forest = ActionId::new("forest_exploration");
+        let farming = ActionId::new("farming");
+
+        state.unlocked_actions.retain(|action| action == &forest);
+        assert_eq!(
+            state.available_actions(&catalog, &hero).collect::<Vec<_>>(),
+            vec![&forest]
+        );
+        assert!(state.available_actions(&catalog, &farm).next().is_none());
+        assert!(!state.assign_action(&catalog, &farm, &farming));
+
+        assert!(state.unlock_action(&catalog, &farming));
+        assert_eq!(
+            state.available_actions(&catalog, &farm).collect::<Vec<_>>(),
+            vec![&farming]
+        );
+        assert!(!state.assign_action(&catalog, &hero, &farming));
+        assert!(state.assign_action(&catalog, &farm, &farming));
+    }
+
+    #[test]
     fn assign_action_seeds_progress() {
         let catalog = Catalog::builtin();
         let mut state = GameState::seeded(&catalog);
@@ -340,7 +408,11 @@ mod tests {
     fn one_target_runs_distinct_actions_concurrently() {
         // A facility-style target running two different actions at once.
         let mut catalog = Catalog::new();
-        catalog.register_target(TargetTemplate::new("farm", "Farm"));
+        catalog.register_target(
+            TargetTemplate::new("farm", "Farm")
+                .with_action("farming")
+                .with_action("livestock"),
+        );
         catalog.register_action(ActionTemplate::new(
             "farming",
             "Farming",
@@ -367,7 +439,11 @@ mod tests {
         // One target runs two actions with the same goal: a single advance past
         // that goal must report both completions and empty the target's quests.
         let mut catalog = Catalog::new();
-        catalog.register_target(TargetTemplate::new("farm", "Farm"));
+        catalog.register_target(
+            TargetTemplate::new("farm", "Farm")
+                .with_action("farming")
+                .with_action("livestock"),
+        );
         catalog.register_action(ActionTemplate::new(
             "farming",
             "Farming",
@@ -411,7 +487,11 @@ mod tests {
         // Two actions with different goals: a step that finishes only the shorter
         // one reports a single event and leaves the longer quest running.
         let mut catalog = Catalog::new();
-        catalog.register_target(TargetTemplate::new("farm", "Farm"));
+        catalog.register_target(
+            TargetTemplate::new("farm", "Farm")
+                .with_action("farming")
+                .with_action("livestock"),
+        );
         catalog.register_action(ActionTemplate::new(
             "farming",
             "Farming",

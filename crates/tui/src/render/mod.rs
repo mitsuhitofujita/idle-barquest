@@ -214,26 +214,54 @@ mod tests {
         assert!(screen.contains("Forest Expl"));
         assert!(screen.contains('[') && screen.contains(']'));
         assert!(screen.contains("50%"), "running quest should show 50%");
-        // The user-choices region numbers every selectable target; Target is the
+        // The user-choices region letters every selectable target; Target is the
         // active column (`>`) while choosing one.
-        assert!(screen.contains(">Target:"));
-        assert!(screen.contains("1) Hero"));
-        assert!(screen.contains("3) Farmer"));
+        assert!(screen.contains("|> Target:"));
+        assert!(screen.contains("a) Hero"));
+        assert!(screen.contains("c) Farmer"));
+        assert!(!screen.contains("Action:"));
+        assert!(!screen.contains("Times:"));
+
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+        assert!(rows[8].starts_with("|> Target:"));
+        assert!(rows[9].starts_with("| a) Hero"));
+        assert!(rows[10].starts_with("| b) Adventurer"));
+        assert!(rows[11].starts_with("| c) Farmer"));
+        assert!(
+            rows[8..15]
+                .iter()
+                .all(|row| row.chars().filter(|&c| c == '|').count() == 1),
+            "Target selection should render only its left boundary"
+        );
     }
 
     #[test]
-    fn action_menu_marks_the_chosen_target_and_numbers_actions() {
+    fn action_menu_marks_the_chosen_target_and_letters_actions() {
         let mut app = App::new();
         app.menu = Menu::SelectAction {
-            target: TargetId::new("hero"),
+            target: TargetId::new("adventurer"),
         };
 
         let screen = rendered(&app);
 
-        // Action becomes the active column; the chosen target points an arrow.
-        assert!(screen.contains(">Action:"));
-        assert!(screen.contains("1) Hero ----->"));
-        assert!(screen.contains("1) Forest Exploration"));
+        // Action becomes the active column. Target keys disappear and the
+        // chosen target gets the discovery's trailing `<` marker.
+        assert!(screen.contains("> Action:"));
+        assert!(screen.contains("Adventurer <|"));
+        assert!(!screen.contains("a) Hero"));
+        assert!(screen.contains("a) Forest Exploration"));
+
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+        assert!(rows[8].starts_with("|  Target:       |> Action:"));
+        assert!(rows[9].starts_with("|    Hero        | a) Forest Exploration"));
+        assert!(rows[10].starts_with("|    Adventurer <|"));
+        assert!(rows[11].starts_with("|    Farmer      |"));
+        assert!(
+            rows[8..15]
+                .iter()
+                .all(|row| row.chars().filter(|&c| c == '|').count() == 2),
+            "Action selection should render a left boundary and one separator"
+        );
     }
 
     #[test]
