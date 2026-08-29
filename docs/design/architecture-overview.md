@@ -54,9 +54,11 @@ root (see Decision 0009). The `tui` is split into `app` (live state + behaviour)
 with `main` keeping only the loop and terminal lifecycle (see Decision 0010); it runs
 one non-blocking, frame-paced loop and renders the fixed five-region full-screen
 layout from
-`docs/design/terminal-ui-layout.md` — Title / Progress / User Choices / Information Log /
-Global Menu, a fixed-width three-line ASCII title, separators below the progress
-and later regions, and an 80x24 minimum-size guard (see Decision 0008). The
+`docs/design/terminal-ui-layout.md` — Title / Information Log / User Choices / Progress /
+Global Menu, a fixed-width three-line ASCII title, a blank row before the
+bottom-aligned log, fixed 7-row choices and 6-row progress regions, three
+separators below the log, and an 80x24 minimum-size guard (see Decisions 0008 and
+0012). The
 Progress region shows one `[===>   ] NN%` bar per active action; the player
 selects a target then an action by number in the three-column choices panel
 (`1) Hero ----->`); completions surface in the log. `balance-sim` runs the same
@@ -87,3 +89,4 @@ land first; external authoring comes later.
 - [Decision 0009: Core module structure](../decisions/0009-core-module-structure.md)
 - [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)
 - [Decision 0011: Terminal visual style](../decisions/0011-terminal-visual-style.md)
+- [Decision 0012: Terminal layout refinement](../decisions/0012-terminal-layout-refinement.md)

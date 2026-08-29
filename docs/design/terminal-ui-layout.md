@@ -41,18 +41,38 @@ Color may be used to improve readability, but color must not be the only way to 
 The screen is divided vertically into the following regions, in this fixed order:
 
 1. Title
-2. Progress
+2. Information Log
 3. User Choices
-4. Information Log
+4. Progress
 5. Global Menu
 
 The title region is always 3 rows.
 
 The global menu region is always 1 row.
 
-The user choices region is normally 10 rows.
+The user choices region is always 7 rows: one heading row and up to 6 choice
+rows.
 
-The remaining vertical space should be assigned to the information log region.
+The progress region is always 6 rows and displays up to 6 active actions.
+
+The information log region is at least 4 rows. Its first row is always blank,
+leaving visual space below the title. The remaining vertical space is assigned
+to this region, so terminals taller than 24 rows show more log history without
+moving or stretching the lower fixed-height regions.
+
+At the minimum supported height, the rows are allocated as follows:
+
+| Region | Rows |
+| --- | ---: |
+| Title | 3 |
+| Information Log | 4 |
+| Information Log / User Choices separator | 1 |
+| User Choices | 7 |
+| User Choices / Progress separator | 1 |
+| Progress | 6 |
+| Progress / Global Menu separator | 1 |
+| Global Menu | 1 |
+| **Total** | **24** |
 
 ## Horizontal Sizing
 
@@ -64,12 +84,11 @@ Text must not wrap inside fixed-height regions. If a label or value is too long 
 
 ## Separators
 
-The title artwork's bottom row serves as the visual boundary between the Title
-and Progress regions. Do not add a full-width separator below the title.
+Do not add a full-width separator between Title and Information Log. The first
+row of Information Log remains blank to provide visual separation.
 
-Place a separator row between each of the remaining region pairs: Progress and
-User Choices, User Choices and Information Log, and Information Log and Global
-Menu.
+Place a separator row between each of the remaining region pairs: Information
+Log and User Choices, User Choices and Progress, and Progress and Global Menu.
 
 Separators should be built from standard ASCII characters. They should include visual marks at the left side, center, and right side.
 
@@ -104,7 +123,8 @@ The title is a fixed header. It should not change based on the current selection
 
 ## Progress Region
 
-The progress region summarizes the current target, current action, and action progress.
+The progress region is 6 rows high. It summarizes running actions with one row
+per active action and displays at most 6 actions.
 
 Use the following column proportions:
 
@@ -163,9 +183,11 @@ Target:        | Action:      | Times:
  2) Explorer   |  2) Sea ---->|  2) 5
 ```
 
-The user choices region is designed around 10 rows.
+The user choices region is fixed at 7 rows: one column-heading row followed by
+up to 6 choices.
 
-For the current implementation, do not handle or display more than 10 choices. Do not show page information in the current UI.
+For the current implementation, do not handle or display more than 6 choices.
+Do not show page information in the current UI.
 
 Future paging behavior may use the up and down arrow keys. If paging is added later, headings should include page information such as:
 
@@ -181,9 +203,14 @@ The information log region displays game events such as gained resources, action
 
 This region behaves like a terminal log:
 
+- Its first row is always blank, providing the gap below the title.
+- Its minimum height is 4 rows, leaving 3 event rows at `80x24`.
 - New information appears at the bottom.
 - Older information moves upward.
 - If the log exceeds the visible region, old lines may disappear off the top.
+- If fewer events exist than fit, they are bottom-aligned.
+- All terminal height above 24 rows is assigned to this region while its blank
+  first row remains exactly one row high.
 
 The current implementation does not need scrollback or history navigation.
 
@@ -212,7 +239,9 @@ When implementing or modifying the UI, preserve these invariants:
 - Text does not wrap inside fixed-height regions.
 - Important state is not color-only.
 - The title and global menu remain fixed.
-- The user choices region is limited to 10 rows for now.
+- The user choices region has one heading plus at most 6 entries.
+- The progress region displays at most 6 active actions.
+- Extra terminal height expands only the information log.
 
 ## Related decisions
 
@@ -220,3 +249,4 @@ When implementing or modifying the UI, preserve these invariants:
 - [Decision 0008: Full-screen TUI layout and events](../decisions/0008-full-screen-tui-layout-and-events.md)
 - [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)
 - [Decision 0011: Terminal visual style](../decisions/0011-terminal-visual-style.md)
+- [Decision 0012: Terminal layout refinement](../decisions/0012-terminal-layout-refinement.md)

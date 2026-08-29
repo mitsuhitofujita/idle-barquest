@@ -1,9 +1,9 @@
 ---
 date: 2026-08-29
 tags: [tui, layout]
-status: proposed
-worklogs: []
-decisions: []
+status: decided
+worklogs: [0003-terminal-layout-refinement]
+decisions: [0012-terminal-layout-refinement]
 ---
 
 レイアウトの見直す。
