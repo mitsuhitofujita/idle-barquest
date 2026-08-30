@@ -6,7 +6,7 @@
 //! (`Catalog` + `GameState`). Replace with a real simulation later.
 
 use barquest_core::{
-    ActionId, Catalog, GameEvent, GameState, LocationId, TICKS_PER_SECOND, TargetId,
+    ActionId, Catalog, GameEvent, GameState, LocationId, SeededRandom, TICKS_PER_SECOND, TargetId,
 };
 
 fn main() {
@@ -16,17 +16,23 @@ fn main() {
     let shore = LocationId::new("first_shore");
     let gather = ActionId::new("gather");
     state.assign_action(&catalog, &hero, &shore, &gather);
+    let mut random = SeededRandom::new(0);
 
     // Advance frame-by-frame (100 ticks) until the hero's quest completes. The
     // quest is removed on completion, so we watch the returned events.
     let mut ticks = 0u64;
     loop {
-        let events = state.advance(100);
+        let events = state.advance(&catalog, 100, &mut random);
         ticks += 100;
         let done = events.iter().any(|event| {
             matches!(
                 event,
-                GameEvent::QuestCompleted { target, location, action }
+                GameEvent::QuestCompleted {
+                    target,
+                    location,
+                    action,
+                    ..
+                }
                     if *target == hero && *location == shore && *action == gather
             )
         });

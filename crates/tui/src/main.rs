@@ -21,7 +21,7 @@ mod input;
 mod render;
 
 use std::io;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crossterm::event;
 use ratatui::DefaultTerminal;
@@ -43,7 +43,11 @@ fn main() -> io::Result<()> {
 /// Runs the unified loop: advance every target's quest each frame while the
 /// player assigns actions via the bottom menu. Returns when the player quits.
 fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
-    let mut app = App::new();
+    let random_seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    let mut app = App::new(random_seed);
     let start = Instant::now();
     let mut frame_idx: u32 = 0;
 

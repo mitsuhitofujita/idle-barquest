@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn render_shows_the_running_action_row_and_the_menu() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         // Put the hero halfway through hunting in the woods.
         app.state.assign_action(
             &app.catalog,
@@ -206,7 +206,7 @@ mod tests {
             &ActionId::new("hunt"),
         );
         app.state.spawn_target(&app.catalog, &TargetId::new("hero"));
-        app.state.advance(seconds_to_ticks(5)); // 50% of the 10s goal
+        app.advance(seconds_to_ticks(5)); // 50% of the 10s goal
 
         let screen = rendered(&app);
 
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn location_menu_marks_target_and_letters_locations() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         app.menu = Menu::SelectLocation {
             target: TargetId::new("hero"),
         };
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn action_menu_marks_target_and_location_and_filters_actions() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         app.menu = Menu::SelectAction {
             target: TargetId::new("hero"),
             location: LocationId::new("first_shore"),
@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn render_shows_log_lines_in_the_log_region() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         app.log = vec!["Hero completed Gather at First Shore".to_string()];
 
         let screen = rendered(&app);
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn render_shows_the_five_region_chrome() {
-        let app = App::new();
+        let app = App::new(0);
         let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
         let screen = rows.concat();
 
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn extra_terminal_height_is_assigned_only_to_the_log() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         app.log = vec!["latest event".to_string()];
 
         let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT + 5, &app);
@@ -377,7 +377,7 @@ mod tests {
 
     #[test]
     fn render_chrome_is_ascii_only() {
-        let app = App::new();
+        let app = App::new(0);
         let screen = rendered(&app);
         assert!(
             screen.is_ascii(),
@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn refuses_to_draw_below_minimum_size() {
-        let app = App::new();
+        let app = App::new(0);
 
         for (w, h) in [(MIN_WIDTH - 1, MIN_HEIGHT), (MIN_WIDTH, MIN_HEIGHT - 1)] {
             let screen = screen_at(w, h, &app);

@@ -1,7 +1,8 @@
 //! Live, serializable-friendly game state and deterministic task progression.
 
-use crate::catalog::Catalog;
-use crate::id::{ActionId, LocationId, TargetId};
+use crate::catalog::{Catalog, RewardOutcome};
+use crate::id::{ActionId, LocationId, ResourceId, TargetId};
+use crate::random::RandomSource;
 use crate::time::Progress;
 
 /// The single running task assigned to a target.
@@ -18,7 +19,7 @@ pub struct Quest {
 /// Something that happened during an [`advance`](GameState::advance) step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GameEvent {
-    /// A target finished its task; the task has been removed.
+    /// A target finished its task, drew a reward, and was freed.
     QuestCompleted {
         /// Instance that performed the action.
         target: TargetId,
@@ -26,7 +27,18 @@ pub enum GameEvent {
         location: LocationId,
         /// Action that completed.
         action: ActionId,
+        /// Exclusive result selected from the matching reward table.
+        outcome: RewardOutcome,
     },
+}
+
+/// One accumulated resource quantity in the live inventory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceStack {
+    /// Resource template whose units are held.
+    pub resource: ResourceId,
+    /// Total units currently held.
+    pub amount: u64,
 }
 
 /// One live person or organization that can perform at most one task.
@@ -49,6 +61,8 @@ pub struct GameState {
     pub unlocked_locations: Vec<LocationId>,
     /// Unlocked actions, in menu order.
     pub unlocked_actions: Vec<ActionId>,
+    /// Resources earned during this game, in first-acquisition order.
+    pub inventory: Vec<ResourceStack>,
 }
 
 impl GameState {
@@ -76,6 +90,7 @@ impl GameState {
             targets,
             unlocked_locations,
             unlocked_actions,
+            inventory: Vec::new(),
         }
     }
 
@@ -165,6 +180,7 @@ impl GameState {
         if !self.unlocked_locations.contains(location)
             || !self.unlocked_actions.contains(action)
             || !location_template.supports(action)
+            || !valid_reward_table(catalog, location, action)
         {
             return false;
         }
@@ -190,20 +206,35 @@ impl GameState {
         true
     }
 
-    /// Advances every active task, emits completions, and frees finished targets.
-    pub fn advance(&mut self, ticks: u64) -> Vec<GameEvent> {
+    /// Advances every active task, draws rewards, emits completions, and frees
+    /// finished targets.
+    pub fn advance(
+        &mut self,
+        catalog: &Catalog,
+        ticks: u64,
+        random: &mut impl RandomSource,
+    ) -> Vec<GameEvent> {
         let mut events = Vec::new();
-        for target in &mut self.targets {
+        let (targets, inventory) = (&mut self.targets, &mut self.inventory);
+        for target in targets {
             let completed = target.quest.as_mut().is_some_and(|quest| {
                 quest.progress.advance(ticks);
                 quest.progress.is_complete()
             });
             if completed {
                 let quest = target.quest.take().expect("completed task exists");
+                let outcome = catalog
+                    .reward_table(&quest.location, &quest.action)
+                    .expect("assigned task has a reward table")
+                    .draw(random);
+                if let RewardOutcome::Resource { resource, amount } = &outcome {
+                    add_resource(inventory, resource, *amount);
+                }
                 events.push(GameEvent::QuestCompleted {
                     target: target.id.clone(),
                     location: quest.location,
                     action: quest.action,
+                    outcome,
                 });
             }
         }
@@ -215,6 +246,14 @@ impl GameState {
         self.targets
             .iter()
             .filter_map(|target| target.quest.as_ref().map(|quest| (target, quest)))
+    }
+
+    /// Returns the currently held amount of one resource.
+    pub fn resource_count(&self, resource: &ResourceId) -> u64 {
+        self.inventory
+            .iter()
+            .find(|stack| &stack.resource == resource)
+            .map_or(0, |stack| stack.amount)
     }
 
     fn unique_instance_id(&self, template: &TargetId) -> TargetId {
@@ -232,11 +271,49 @@ impl GameState {
     }
 }
 
+fn valid_reward_table(catalog: &Catalog, location: &LocationId, action: &ActionId) -> bool {
+    catalog.reward_table(location, action).is_some_and(|table| {
+        table.total_chance() == 100
+            && table.entries().all(|entry| {
+                entry.chance > 0
+                    && match &entry.outcome {
+                        RewardOutcome::Resource { resource, amount } => {
+                            *amount > 0 && catalog.resource(resource).is_some()
+                        }
+                        RewardOutcome::Nothing => true,
+                    }
+            })
+    })
+}
+
+fn add_resource(inventory: &mut Vec<ResourceStack>, resource: &ResourceId, amount: u64) {
+    if let Some(stack) = inventory
+        .iter_mut()
+        .find(|stack| &stack.resource == resource)
+    {
+        stack.amount = stack.amount.saturating_add(amount);
+    } else {
+        inventory.push(ResourceStack {
+            resource: resource.clone(),
+            amount,
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::catalog::{ActionTemplate, LocationTemplate, TargetTemplate};
     use crate::time::seconds_to_ticks;
+
+    struct FixedRandom(u32);
+
+    impl RandomSource for FixedRandom {
+        fn below(&mut self, upper_exclusive: u32) -> u32 {
+            assert!(self.0 < upper_exclusive);
+            self.0
+        }
+    }
 
     fn ids() -> (TargetId, LocationId, ActionId) {
         (
@@ -261,6 +338,7 @@ mod tests {
             state.unlocked_actions,
             ["gather", "fish", "hunt"].map(ActionId::new)
         );
+        assert!(state.inventory.is_empty());
     }
 
     #[test]
@@ -350,22 +428,70 @@ mod tests {
         let catalog = Catalog::builtin();
         let mut state = GameState::seeded(&catalog);
         let (hero, shore, gather) = ids();
+        let mut random = FixedRandom(20);
         assert!(state.assign_action(&catalog, &hero, &shore, &gather));
-        assert!(state.advance(seconds_to_ticks(5)).is_empty());
+        assert!(
+            state
+                .advance(&catalog, seconds_to_ticks(5), &mut random)
+                .is_empty()
+        );
         assert_eq!(
             state.targets[0].quest.as_ref().unwrap().progress.ratio(),
             0.5
         );
         assert_eq!(
-            state.advance(seconds_to_ticks(5)),
+            state.advance(&catalog, seconds_to_ticks(5), &mut random),
             [GameEvent::QuestCompleted {
                 target: hero.clone(),
                 location: shore.clone(),
                 action: gather.clone(),
+                outcome: RewardOutcome::Resource {
+                    resource: ResourceId::new("pebble"),
+                    amount: 1,
+                },
             }]
         );
+        assert_eq!(state.resource_count(&ResourceId::new("pebble")), 1);
         assert!(state.targets[0].quest.is_none());
         assert!(state.assign_action(&catalog, &hero, &shore, &gather));
+    }
+
+    #[test]
+    fn repeated_resource_rewards_accumulate_in_one_stack() {
+        let catalog = Catalog::builtin();
+        let mut state = GameState::seeded(&catalog);
+        let (hero, shore, gather) = ids();
+        let mut random = FixedRandom(20);
+
+        for _ in 0..2 {
+            assert!(state.assign_action(&catalog, &hero, &shore, &gather));
+            state.advance(&catalog, seconds_to_ticks(10), &mut random);
+        }
+
+        assert_eq!(state.resource_count(&ResourceId::new("pebble")), 2);
+        assert_eq!(state.inventory.len(), 1);
+    }
+
+    #[test]
+    fn nothing_reward_does_not_change_inventory() {
+        let catalog = Catalog::builtin();
+        let mut state = GameState::seeded(&catalog);
+        let hero = TargetId::new("hero");
+        let shore = LocationId::new("first_shore");
+        let fish = ActionId::new("fish");
+        let mut random = FixedRandom(10);
+        assert!(state.assign_action(&catalog, &hero, &shore, &fish));
+
+        assert_eq!(
+            state.advance(&catalog, seconds_to_ticks(10), &mut random),
+            [GameEvent::QuestCompleted {
+                target: hero,
+                location: shore,
+                action: fish,
+                outcome: RewardOutcome::Nothing,
+            }]
+        );
+        assert!(state.inventory.is_empty());
     }
 
     #[test]

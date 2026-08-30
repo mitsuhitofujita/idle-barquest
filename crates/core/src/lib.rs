@@ -15,16 +15,22 @@
 //!
 //! The logic is split across small modules — [`mod@time`] (tick model and
 //! [`Progress`]), [`mod@id`] (string ids), [`mod@catalog`] (content templates),
-//! and [`mod@state`] (the live world) — and the full public API is re-exported
-//! flat from the crate root, so consumers `use barquest_core::Catalog;` and
-//! friends regardless of where each type lives.
+//! [`mod@random`] (caller-controlled reward randomness), and [`mod@state`] (the
+//! live world) — and the full public API is re-exported flat from the crate
+//! root, so consumers `use barquest_core::Catalog;` and friends regardless of
+//! where each type lives.
 
 mod catalog;
 mod id;
+mod random;
 mod state;
 mod time;
 
-pub use catalog::{ActionTemplate, Catalog, LocationTemplate, TargetTemplate};
-pub use id::{ActionId, LocationId, TargetId};
-pub use state::{GameEvent, GameState, Quest, TargetInstance};
+pub use catalog::{
+    ActionTemplate, Catalog, LocationTemplate, ResourceTemplate, RewardEntry, RewardOutcome,
+    RewardTable, TargetTemplate,
+};
+pub use id::{ActionId, LocationId, ResourceId, TargetId};
+pub use random::{RandomSource, SeededRandom};
+pub use state::{GameEvent, GameState, Quest, ResourceStack, TargetInstance};
 pub use time::{Progress, TICKS_PER_SECOND, seconds_to_ticks};

@@ -1,6 +1,8 @@
 //! Testable front-end state and behavior for the progressive choices flow.
 
-use barquest_core::{Catalog, GameEvent, GameState, LocationId, TargetId};
+use barquest_core::{
+    Catalog, GameEvent, GameState, LocationId, RewardOutcome, SeededRandom, TargetId,
+};
 
 use crate::input::Input;
 
@@ -26,10 +28,11 @@ pub(crate) struct App {
     pub(crate) state: GameState,
     pub(crate) menu: Menu,
     pub(crate) log: Vec<String>,
+    random: SeededRandom,
 }
 
 impl App {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(random_seed: u64) -> Self {
         let catalog = Catalog::builtin();
         let state = GameState::seeded(&catalog);
         Self {
@@ -37,6 +40,7 @@ impl App {
             state,
             menu: Menu::SelectTarget,
             log: Vec::new(),
+            random: SeededRandom::new(random_seed),
         }
     }
 
@@ -107,7 +111,7 @@ impl App {
     }
 
     pub(crate) fn advance(&mut self, ticks: u64) {
-        for event in self.state.advance(ticks) {
+        for event in self.state.advance(&self.catalog, ticks, &mut self.random) {
             push_event(&mut self.log, &self.catalog, &event);
         }
     }
@@ -119,6 +123,7 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
             target,
             location,
             action,
+            outcome,
         } => {
             let target = catalog
                 .target(target)
@@ -129,7 +134,16 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
             let action = catalog
                 .action(action)
                 .map_or("?", |value| value.label.as_str());
-            format!("{target} completed {action} at {location}")
+            let outcome = match outcome {
+                RewardOutcome::Resource { resource, amount } => {
+                    let resource = catalog
+                        .resource(resource)
+                        .map_or("?", |value| value.label.as_str());
+                    format!("{resource} x{amount}")
+                }
+                RewardOutcome::Nothing => "Nothing".to_string(),
+            };
+            format!("{target} completed {action} at {location}: {outcome}")
         }
     };
     log.push(line);
@@ -141,11 +155,11 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use barquest_core::{ActionId, seconds_to_ticks};
+    use barquest_core::{ActionId, ResourceId, seconds_to_ticks};
 
     #[test]
     fn selection_walks_target_location_action_then_assigns() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         assert!(!app.update(Input::Select(0)));
         assert_eq!(
             app.menu,
@@ -171,7 +185,7 @@ mod tests {
 
     #[test]
     fn back_moves_exactly_one_stage_and_does_nothing_at_target() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         app.update(Input::Back);
         assert_eq!(app.menu, Menu::SelectTarget);
         app.update(Input::Select(0));
@@ -189,7 +203,7 @@ mod tests {
 
     #[test]
     fn busy_target_fixed_slot_is_ignored_and_freed_after_completion() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         app.update(Input::Select(0));
         app.update(Input::Select(0));
         app.update(Input::Select(0));
@@ -203,7 +217,7 @@ mod tests {
 
     #[test]
     fn target_after_busy_slot_keeps_its_original_letter() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         let hero = TargetId::new("hero");
         let second = app.state.spawn_target(&app.catalog, &hero).unwrap();
         assert!(app.state.assign_action(
@@ -221,7 +235,7 @@ mod tests {
 
     #[test]
     fn out_of_range_and_ignored_inputs_are_noops() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         for input in [Input::Select(8), Input::Ignored] {
             assert!(!app.update(input));
             assert_eq!(app.menu, Menu::SelectTarget);
@@ -230,7 +244,7 @@ mod tests {
 
     #[test]
     fn quit_works_from_every_stage() {
-        let mut app = App::new();
+        let mut app = App::new(0);
         assert!(app.update(Input::Quit));
         app.menu = Menu::SelectLocation {
             target: TargetId::new("hero"),
@@ -244,14 +258,33 @@ mod tests {
     }
 
     #[test]
-    fn completion_log_contains_target_location_and_action() {
-        let mut app = App::new();
+    fn completion_log_contains_target_location_action_and_resource() {
+        let mut app = App::new(0);
         app.update(Input::Select(0));
         app.update(Input::Select(1));
         app.update(Input::Select(1));
         app.advance(seconds_to_ticks(10));
-        assert_eq!(app.log, ["Hero completed Hunt at Nearby Woods".to_string()]);
+        assert_eq!(
+            app.log,
+            ["Hero completed Hunt at Nearby Woods: Awful Meat x1".to_string()]
+        );
         assert!(app.state.targets[0].quest.is_none());
+    }
+
+    #[test]
+    fn completion_log_reports_explicit_nothing() {
+        let catalog = Catalog::builtin();
+        let event = GameEvent::QuestCompleted {
+            target: TargetId::new("hero"),
+            location: LocationId::new("first_shore"),
+            action: ActionId::new("fish"),
+            outcome: RewardOutcome::Nothing,
+        };
+        let mut log = Vec::new();
+
+        push_event(&mut log, &catalog, &event);
+
+        assert_eq!(log, ["Hero completed Fish at First Shore: Nothing"]);
     }
 
     #[test]
@@ -261,11 +294,18 @@ mod tests {
             target: TargetId::new("hero"),
             location: LocationId::new("first_shore"),
             action: ActionId::new("gather"),
+            outcome: RewardOutcome::Resource {
+                resource: ResourceId::new("pebble"),
+                amount: 1,
+            },
         };
         let mut log: Vec<String> = (0..LOG_CAPACITY).map(|i| format!("line {i}")).collect();
         push_event(&mut log, &catalog, &event);
         assert_eq!(log.len(), LOG_CAPACITY);
         assert_eq!(log.first().unwrap(), "line 1");
-        assert_eq!(log.last().unwrap(), "Hero completed Gather at First Shore");
+        assert_eq!(
+            log.last().unwrap(),
+            "Hero completed Gather at First Shore: Pebble x1"
+        );
     }
 }

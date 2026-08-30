@@ -84,7 +84,7 @@ fn progress_bar(ratio: f64, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use barquest_core::{ActionId, LocationId, TargetId, seconds_to_ticks};
+    use barquest_core::{ActionId, LocationId, SeededRandom, TargetId, seconds_to_ticks};
 
     #[test]
     fn progress_bar_has_expected_endpoints_and_midpoint() {
@@ -109,7 +109,7 @@ mod tests {
             &LocationId::new("nearby_woods"),
             &ActionId::new("hunt"),
         );
-        state.advance(seconds_to_ticks(5));
+        state.advance(&catalog, seconds_to_ticks(5), &mut SeededRandom::new(0));
         let rows = progress_rows(&catalog, &state, 80);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].chars().count(), 80);

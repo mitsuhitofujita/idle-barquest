@@ -5,7 +5,8 @@
 //! templates are *instantiated* from the catalog into the state, and registering
 //! a new template makes content available without touching live state.
 
-use crate::id::{ActionId, LocationId, TargetId};
+use crate::id::{ActionId, LocationId, ResourceId, TargetId};
+use crate::random::RandomSource;
 use crate::time::seconds_to_ticks;
 
 /// Immutable definition of a kind of target — content data, not live state.
@@ -99,6 +100,119 @@ impl ActionTemplate {
     }
 }
 
+/// Immutable definition of a collectible resource.
+#[derive(Debug, Clone)]
+pub struct ResourceTemplate {
+    /// Stable id, e.g. `"seaweed_fragment"`.
+    pub id: ResourceId,
+    /// English display name, e.g. `"Seaweed Fragment"`.
+    pub label: String,
+}
+
+impl ResourceTemplate {
+    /// Builds a resource from an id and display label.
+    pub fn new(id: impl Into<ResourceId>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+}
+
+/// The mutually exclusive result of one reward-table draw.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RewardOutcome {
+    /// Add `amount` of one resource to the live inventory.
+    Resource {
+        /// Resource template to award.
+        resource: ResourceId,
+        /// Number of units awarded.
+        amount: u64,
+    },
+    /// The action completed but awarded no resource.
+    Nothing,
+}
+
+/// One weighted outcome in a [`RewardTable`].
+#[derive(Debug, Clone)]
+pub struct RewardEntry {
+    /// Outcome selected when a roll lands in this entry's range.
+    pub outcome: RewardOutcome,
+    /// Integer percentage chance. A valid table totals exactly 100.
+    pub chance: u32,
+}
+
+/// Exclusive reward outcomes for one Location and Action combination.
+#[derive(Debug, Clone)]
+pub struct RewardTable {
+    /// Location whose completion uses this table.
+    pub location: LocationId,
+    /// Action whose completion uses this table.
+    pub action: ActionId,
+    entries: Vec<RewardEntry>,
+}
+
+impl RewardTable {
+    /// Starts an empty reward table for a Location and Action combination.
+    pub fn new(location: impl Into<LocationId>, action: impl Into<ActionId>) -> Self {
+        Self {
+            location: location.into(),
+            action: action.into(),
+            entries: Vec::new(),
+        }
+    }
+
+    /// Adds a resource outcome with an integer percentage chance.
+    pub fn with_resource(
+        mut self,
+        resource: impl Into<ResourceId>,
+        amount: u64,
+        chance: u32,
+    ) -> Self {
+        self.entries.push(RewardEntry {
+            outcome: RewardOutcome::Resource {
+                resource: resource.into(),
+                amount,
+            },
+            chance,
+        });
+        self
+    }
+
+    /// Adds an explicit no-reward outcome.
+    pub fn with_nothing(mut self, chance: u32) -> Self {
+        self.entries.push(RewardEntry {
+            outcome: RewardOutcome::Nothing,
+            chance,
+        });
+        self
+    }
+
+    /// Iterates outcomes in draw order.
+    pub fn entries(&self) -> impl Iterator<Item = &RewardEntry> {
+        self.entries.iter()
+    }
+
+    /// Sum of all outcome chances.
+    pub fn total_chance(&self) -> u32 {
+        self.entries.iter().map(|entry| entry.chance).sum()
+    }
+
+    pub(crate) fn draw(&self, random: &mut impl RandomSource) -> RewardOutcome {
+        let total = self.total_chance();
+        assert_eq!(total, 100, "reward-table chance must total 100");
+        let roll = random.below(total);
+        let mut boundary = 0;
+        for entry in &self.entries {
+            boundary += entry.chance;
+            if roll < boundary {
+                return entry.outcome.clone();
+            }
+        }
+        unreachable!("a bounded roll must select an outcome")
+    }
+}
+
 /// The pool of all known content templates, looked up by id.
 ///
 /// Targets and actions are *instantiated* from here into a
@@ -111,6 +225,8 @@ pub struct Catalog {
     targets: Vec<TargetTemplate>,
     locations: Vec<LocationTemplate>,
     actions: Vec<ActionTemplate>,
+    resources: Vec<ResourceTemplate>,
+    reward_tables: Vec<RewardTable>,
 }
 
 impl Catalog {
@@ -147,6 +263,38 @@ impl Catalog {
         for (id, label) in [("gather", "Gather"), ("fish", "Fish"), ("hunt", "Hunt")] {
             catalog.register_action(ActionTemplate::new(id, label, seconds_to_ticks(10)));
         }
+        for (id, label) in [
+            ("pebble", "Pebble"),
+            ("twig", "Twig"),
+            ("grass", "Grass"),
+            ("vine", "Vine"),
+            ("small_fish", "Small Fish"),
+            ("seaweed_fragment", "Seaweed Fragment"),
+            ("small_fang", "Small Fang"),
+            ("awful_meat", "Awful Meat"),
+        ] {
+            catalog.register_resource(ResourceTemplate::new(id, label));
+        }
+        for table in [
+            RewardTable::new("nearby_hill", "gather")
+                .with_resource("grass", 1, 50)
+                .with_resource("pebble", 1, 50),
+            RewardTable::new("nearby_hill", "hunt").with_resource("awful_meat", 1, 100),
+            RewardTable::new("nearby_woods", "gather")
+                .with_resource("vine", 1, 20)
+                .with_resource("twig", 1, 80),
+            RewardTable::new("nearby_woods", "hunt")
+                .with_resource("awful_meat", 1, 90)
+                .with_resource("small_fang", 1, 10),
+            RewardTable::new("first_shore", "fish")
+                .with_resource("small_fish", 1, 10)
+                .with_nothing(90),
+            RewardTable::new("first_shore", "gather")
+                .with_resource("seaweed_fragment", 1, 20)
+                .with_resource("pebble", 1, 80),
+        ] {
+            catalog.register_reward_table(table);
+        }
         catalog
     }
 
@@ -167,6 +315,16 @@ impl Catalog {
         self.actions.push(template);
     }
 
+    /// Adds a resource template to the pool.
+    pub fn register_resource(&mut self, template: ResourceTemplate) {
+        self.resources.push(template);
+    }
+
+    /// Adds one Location and Action reward table.
+    pub fn register_reward_table(&mut self, table: RewardTable) {
+        self.reward_tables.push(table);
+    }
+
     /// Looks up a target template by id, or `None` for unknown content.
     pub fn target(&self, id: &TargetId) -> Option<&TargetTemplate> {
         self.targets.iter().find(|t| &t.id == id)
@@ -180,6 +338,18 @@ impl Catalog {
     /// Looks up a location template by id, or `None` for unknown content.
     pub fn location(&self, id: &LocationId) -> Option<&LocationTemplate> {
         self.locations.iter().find(|location| &location.id == id)
+    }
+
+    /// Looks up a resource template by id, or `None` for unknown content.
+    pub fn resource(&self, id: &ResourceId) -> Option<&ResourceTemplate> {
+        self.resources.iter().find(|resource| &resource.id == id)
+    }
+
+    /// Looks up the reward table for a Location and Action combination.
+    pub fn reward_table(&self, location: &LocationId, action: &ActionId) -> Option<&RewardTable> {
+        self.reward_tables
+            .iter()
+            .find(|table| &table.location == location && &table.action == action)
     }
 
     /// Iterates target templates in registration (= menu) order.
@@ -196,11 +366,30 @@ impl Catalog {
     pub fn actions(&self) -> impl Iterator<Item = &ActionTemplate> {
         self.actions.iter()
     }
+
+    /// Iterates resource templates in registration order.
+    pub fn resources(&self) -> impl Iterator<Item = &ResourceTemplate> {
+        self.resources.iter()
+    }
+
+    /// Iterates reward tables in registration order.
+    pub fn reward_tables(&self) -> impl Iterator<Item = &RewardTable> {
+        self.reward_tables.iter()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct FixedRandom(u32);
+
+    impl RandomSource for FixedRandom {
+        fn below(&mut self, upper_exclusive: u32) -> u32 {
+            assert!(self.0 < upper_exclusive);
+            self.0
+        }
+    }
 
     #[test]
     fn menu_lists_are_non_empty() {
@@ -267,11 +456,101 @@ mod tests {
     }
 
     #[test]
-    fn action_goal_seeds_a_valid_progress() {
+    fn every_builtin_action_takes_ten_seconds() {
         let catalog = Catalog::builtin();
-        let goal = catalog.action(&ActionId::new("gather")).unwrap().goal_ticks;
-        assert_eq!(goal, seconds_to_ticks(10));
-        assert!(goal > 0);
-        assert_eq!(crate::Progress::new(goal).goal(), goal);
+        for action in catalog.actions() {
+            assert_eq!(action.goal_ticks, seconds_to_ticks(10));
+            assert_eq!(
+                crate::Progress::new(action.goal_ticks).goal(),
+                action.goal_ticks
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_resources_are_unique_and_reward_references_resolve() {
+        let catalog = Catalog::builtin();
+        let resource_ids: Vec<&str> = catalog
+            .resources()
+            .map(|resource| resource.id.as_str())
+            .collect();
+        assert_eq!(
+            resource_ids,
+            [
+                "pebble",
+                "twig",
+                "grass",
+                "vine",
+                "small_fish",
+                "seaweed_fragment",
+                "small_fang",
+                "awful_meat",
+            ]
+        );
+        let mut unique = resource_ids.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), resource_ids.len());
+
+        let mut reward_pairs = Vec::new();
+        for table in catalog.reward_tables() {
+            assert!(catalog.location(&table.location).is_some());
+            assert!(catalog.action(&table.action).is_some());
+            assert_eq!(table.total_chance(), 100);
+            for entry in table.entries() {
+                assert!(entry.chance > 0);
+                if let RewardOutcome::Resource { resource, amount } = &entry.outcome {
+                    assert!(catalog.resource(resource).is_some());
+                    assert_eq!(*amount, 1);
+                }
+            }
+            reward_pairs.push((table.location.as_str(), table.action.as_str()));
+        }
+        assert_eq!(catalog.reward_tables().count(), 6);
+        reward_pairs.sort_unstable();
+        reward_pairs.dedup();
+        assert_eq!(reward_pairs.len(), 6, "duplicate reward-table key");
+
+        for location in catalog.locations() {
+            for action in &location.actions {
+                assert!(
+                    catalog.reward_table(&location.id, action).is_some(),
+                    "missing reward table for {}/{}",
+                    location.id.as_str(),
+                    action.as_str()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reward_draws_switch_at_exclusive_table_boundaries() {
+        let catalog = Catalog::builtin();
+        let table = catalog
+            .reward_table(&LocationId::new("nearby_hill"), &ActionId::new("gather"))
+            .unwrap();
+        assert_eq!(
+            table.draw(&mut FixedRandom(49)),
+            RewardOutcome::Resource {
+                resource: ResourceId::new("grass"),
+                amount: 1,
+            }
+        );
+        assert_eq!(
+            table.draw(&mut FixedRandom(50)),
+            RewardOutcome::Resource {
+                resource: ResourceId::new("pebble"),
+                amount: 1,
+            }
+        );
+
+        let fishing = catalog
+            .reward_table(&LocationId::new("first_shore"), &ActionId::new("fish"))
+            .unwrap();
+        assert!(matches!(
+            fishing.draw(&mut FixedRandom(9)),
+            RewardOutcome::Resource { .. }
+        ));
+        assert_eq!(fishing.draw(&mut FixedRandom(10)), RewardOutcome::Nothing);
     }
 }
