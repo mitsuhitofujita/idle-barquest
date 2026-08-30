@@ -286,3 +286,4 @@ When implementing or modifying the UI, preserve these invariants:
 - [Decision 0011: Terminal visual style](../decisions/0011-terminal-visual-style.md)
 - [Decision 0012: Terminal layout refinement](../decisions/0012-terminal-layout-refinement.md)
 - [Decision 0013: Contextual action selection](../decisions/0013-contextual-action-selection.md)
+- [Decision 0014: Three-stage task assignment](../decisions/0014-three-stage-task-assignment.md)

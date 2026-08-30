@@ -1,8 +1,8 @@
 ---
 date: 2026-08-30
-status: in-progress
+status: merged
 discussions: [0006-three-stage-user-choices]
-decisions: []
+decisions: [0014-three-stage-task-assignment]
 pr: null
 ---
 

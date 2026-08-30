@@ -1,9 +1,9 @@
 ---
 date: 2026-08-30
 tags: [tui, interaction, gameplay, leveling]
-status: worked
+status: decided
 worklogs: [0005-three-stage-user-choices]
-decisions: []
+decisions: [0014-three-stage-task-assignment]
 ---
 
 User Choicesを変更して。

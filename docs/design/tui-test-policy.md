@@ -285,3 +285,4 @@ real terminal tests for the small amount of code that truly needs a terminal.
 - [Decision 0008: Full-screen TUI layout and events](../decisions/0008-full-screen-tui-layout-and-events.md)
 - [Decision 0010: TUI module structure](../decisions/0010-tui-module-structure.md)
 - [Decision 0013: Contextual action selection](../decisions/0013-contextual-action-selection.md)
+- [Decision 0014: Three-stage task assignment](../decisions/0014-three-stage-task-assignment.md)
