@@ -1,15 +1,25 @@
 ---
 name: discuss
-description: Examine a discovery with the user, challenge its assumptions, and write Japanese minutes and a proposal only after the user explicitly asks to conclude the discussion.
+description: Examine a discovery selected by discussion number or path, challenge its assumptions, and write Japanese minutes and a proposal only after the user explicitly asks to conclude the discussion.
 ---
 
 # Discuss a Discovery
 
 Follow `docs/README.md`.
 
-Treat the discussion path in the user's request as the input. Accept either a
-directory under `docs/discussions/` or any file in that directory. Resolve a
-file input to its containing discussion directory.
+Treat the argument in the user's request as the input. Resolve it in this order:
+
+1. If it is a bare sequence number such as `7` or `0007`, zero-pad it to four
+   digits. Find immediate subdirectories of `docs/discussions/` whose names are
+   exactly that number or start with that number followed by `-`. Continue only
+   when exactly one directory matches; if none or more than one match, stop and
+   ask the user how to proceed.
+2. Otherwise, accept a repository-relative path to a directory under
+   `docs/discussions/` or any file inside one. Resolve a file input to its
+   containing discussion directory.
+
+If the input matches neither form, or the resolved directory has no
+`discovery.md`, stop and ask the user how to proceed.
 
 ## Inspect the Discovery and Existing Context
 
