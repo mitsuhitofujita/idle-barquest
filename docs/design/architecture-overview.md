@@ -43,30 +43,41 @@ just check                # fmt-check + clippy + test
 
 The data-driven command loop models tick progression (`Progress`,
 `TICKS_PER_SECOND = 1000`) and a `Catalog` of `TargetTemplate`,
-`LocationTemplate`, and `ActionTemplate` content keyed by stable string ids.
-`GameState` stores live Targets, unlocked Locations and Actions, and at most one
-task per Target. A task and its completion event both carry Target, Location,
-and Action ids. Assignment rejects unknown or locked content, incompatible
-Target/Action or Location/Action pairs, and busy Targets. Completion removes the
-task and makes the Target available again without automatic repetition.
+`LocationTemplate`, `ActionTemplate`, and `ResourceTemplate` content keyed by
+stable string ids. The Catalog also owns exclusive reward tables keyed by
+Location and Action. Each table totals 100%, may include an explicit `Nothing`
+outcome, and is selected by a caller-controlled random source so tests and
+headless tools can reproduce exact reward sequences.
+
+`GameState` stores live Targets, unlocked Locations and Actions, an in-memory
+resource inventory, and at most one task per Target. A task carries Target,
+Location, and Action ids; its completion event adds the selected reward outcome.
+Assignment rejects unknown or locked content, incompatible Target/Action or
+Location/Action pairs, busy Targets, and missing or invalid reward content.
+Completion accumulates awarded resources, removes the task, and makes the Target
+available again without automatic repetition.
 
 The built-in starting world contains Hero; First Shore, Nearby Woods, and Nearby
-Hill; and Gather, Fish, and Hunt with Location-specific compatibility. The
-`core` remains split into `time`, `id`, `catalog`, and `state` modules with a flat
-public API. The `tui` remains split into `app`, `input`, and `render`, while
-`main` owns only pacing and terminal lifecycle. User Choices progressively adds
-Location and Action columns after their preceding selections. Backspace returns
-one stage, and busy Target rows retain their fixed letter slot while showing
-`-` instead of a key. Progress uses Target / Location / Action / Progress Bar,
-and completion logs identify all three task dimensions. `balance-sim` runs the
-same model headless. Build, tests, lint, and formatting checks pass.
+Hill; and Gather, Fish, and Hunt with Location-specific compatibility. Their
+six supported Location and Action combinations take ten seconds and award from
+the shipped Pebble, Twig, Grass, Vine, Small Fish, Seaweed Fragment, Small Fang,
+and Awful Meat resource set. The `core` is split into `time`, `id`, `catalog`,
+`random`, and `state` modules with a flat public API. The `tui` remains split
+into `app`, `input`, and `render`, while `main` owns pacing, terminal lifecycle,
+and production random seeding. User Choices progressively adds Location and
+Action columns after their preceding selections. Backspace returns one stage,
+and busy Target rows retain their fixed letter slot while showing `-` instead
+of a key. Progress uses Target / Location / Action / Progress Bar, and one-line
+completion logs identify all three task dimensions plus the resource result or
+explicit `Nothing`. `balance-sim` runs the same model headless with a fixed seed.
+Build, tests, lint, and formatting checks pass.
 
 ## Next steps
 
-- Add JSON save/load for `GameState` (the catalog/state split and string ids
-  were built for it).
-- Award resources on quest completion (`advance` already emits `GameEvent`s; add
-  reward variants and an inventory).
+- Add JSON save/load for `GameState`, including its inventory (the catalog/state
+  split and string ids were built for it).
+- Add an inventory view and resource consumers such as crafting, technology,
+  and food processing.
 - Expand the `Catalog` with more Targets, Locations, Actions, and per-target
   stats; add later selection stages only when their gameplay exists.
 - Flesh out tools (balance sim, save inspector, content validator).

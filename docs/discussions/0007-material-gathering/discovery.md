@@ -1,3 +1,11 @@
+---
+date: 2026-08-30
+tags: [exploration, hunting, materials]
+status: worked
+worklogs: [0006-material-gathering]
+decisions: []
+---
+
 探索及び狩りで、素材を取得する。
 今の範囲で取得できる素材は以下。
 

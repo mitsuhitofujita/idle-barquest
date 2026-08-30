@@ -158,9 +158,10 @@ For example, a quest progress test should check:
 - After selecting `Hero`, `Nearby Woods`, and `Hunt`, the Hero runs one task
   while the other Targets stay idle (no progress row).
 - After 5 seconds of game time, the renderer shows roughly `50%`.
-- After 10 seconds of game time, `advance` emits a Location-bearing
-  `QuestCompleted` event, the task is removed (its row disappears), and a
-  completion line shows in the log.
+- After 10 seconds of game time, `advance` emits a reward-bearing
+  `QuestCompleted` event with Target, Location, Action, and Outcome, the task is
+  removed (its row disappears), the inventory reflects any awarded resource,
+  and a one-line completion result shows in the log.
 - Any other started Target's task keeps progressing.
 
 No part of this test should sleep for 10 real seconds.

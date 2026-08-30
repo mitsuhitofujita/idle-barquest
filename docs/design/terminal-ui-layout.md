@@ -249,6 +249,16 @@ This region behaves like a terminal log:
 
 The current implementation does not need scrollback or history navigation.
 
+Action completion and its exclusive reward result use one line so the three
+event rows available at `80x24` remain useful:
+
+```text
+Hero completed Gather at Nearby Hill: Pebble x1
+Hero completed Fish at First Shore: Nothing
+```
+
+The inventory total is intentionally not rendered yet.
+
 ## Global Menu Region
 
 The global menu is always visible at the bottom of the screen.
