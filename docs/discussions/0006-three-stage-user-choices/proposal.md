@@ -69,11 +69,11 @@ Backspace で一段前へ戻る。
 
 ### 実行中 Target と選択キー
 
-実行中 Target は一覧から除外せず、選択キーの代わりに `--` を表示する。
+実行中 Target は一覧から除外せず、選択キーの代わりに `-` を表示する。
 
 ```text
 |> Target:
-| -- Hero
+| -  Hero
 | b) Adventurer
 | c) Farmer
 ```
