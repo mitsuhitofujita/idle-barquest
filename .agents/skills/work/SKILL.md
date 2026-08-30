@@ -1,20 +1,29 @@
 ---
 name: work
-description: Create an English worklog and implement either an agreed proposal or a direct task when the user explicitly invokes this skill.
+description: Create an English worklog and implement an agreed proposal selected by discussion number or path, or a direct task, when the user explicitly invokes this skill.
 ---
 
 # Implement and Record Work
 
 Follow `docs/README.md`.
 
-Treat the discussion path or task description in the user's request as the
-input.
+Treat the argument in the user's request as the input.
 
 ## Inspect the Starting Point
 
-If the input identifies a directory or file under `docs/discussions/`, resolve
-it to the discussion directory and read its `proposal.md`. A direct, small task
-does not require a proposal or a new discovery.
+Resolve the input in this order:
+
+1. If it is a bare sequence number such as `10` or `0010`, zero-pad it to four
+   digits. Find immediate subdirectories of `docs/discussions/` whose names are
+   exactly that number or start with that number followed by `-`. Continue only
+   when exactly one directory matches and it contains `proposal.md`; otherwise,
+   stop and ask the user how to proceed.
+2. If it is a repository-relative path to a directory or file under
+   `docs/discussions/`, resolve it to the containing discussion directory and
+   read that directory's `proposal.md`.
+3. Otherwise, treat it as a description of a direct task. A small direct task
+   does not require a proposal or a new discovery; do not ask the user to create
+   one merely to satisfy this workflow.
 
 Read the relevant documents under `docs/design/` before implementation. When a
 migrated discussion lacks `discovery.md`, preserve that historical gap rather
@@ -60,9 +69,10 @@ post-proposal knowledge.
 
 When implementation succeeds, add an English outcome and a detailed account of
 the difficulties and deviations. Treat unexpected findings as more valuable
-than routine success. For every related discussion that has a `discovery.md`,
-set its status to `worked` without changing its body. Leave the worklog status
-as `in-progress` until the user explicitly invokes the decision workflow.
+than routine success, and describe differences from expectations in greater
+detail. For every related discussion that has a `discovery.md`, set its status
+to `worked` without changing its body. Leave the worklog status as `in-progress`
+until the user explicitly invokes the decision workflow.
 
 If the user explicitly abandons the work, record why and set the worklog status
 to `abandoned`. Set a related discovery to `dropped` only when the user also
