@@ -2,7 +2,7 @@
 
 - Status: Current
 - Date: 2026-06-21
-- Updated: 2026-08-29
+- Updated: 2026-08-30
 
 This document defines the terminal UI layout requirements for `IDLE BARQUEST`.
 It is written as an implementation-oriented reference for AI agents and developers.
@@ -130,12 +130,10 @@ Use the following column proportions:
 
 | Column | Width | Purpose |
 | --- | ---: | --- |
-| Target | 20% | Current selected or active target |
-| Action | 20% | Current active action |
-| Times | 10% | Reserved for a future feature; do not emphasize in the current UI |
-| Progress Bar | 30% | Main action progress |
-| Sub Action | 10% | Reserved for a future feature; do not emphasize in the current UI |
-| Sub Progress Bar | 10% | Reserved for a future feature |
+| Target | 20% | Person or organization performing the task |
+| Location | 20% | Place or facility where the task runs |
+| Action | 20% | Current work |
+| Progress Bar | 40% | Main action progress |
 
 All progress-region columns must fit on one row. Do not wrap long labels or values.
 
@@ -162,8 +160,6 @@ At the endpoints and midway through a seven-cell bar, the output is:
 
 If the progress column is narrow, shorten the bar before removing the percentage. If the content still does not fit, truncate it like other column content.
 
-The `Times` and `Sub Action` concepts are future-facing. Preserve the column reservations, but avoid making them prominent in the current game UI until the related gameplay features exist.
-
 ## User Choices Region
 
 The user choices region presents one selection stage at a time. It does not
@@ -172,48 +168,51 @@ reserve empty columns for stages the player has not reached.
 The expected interaction flow is:
 
 1. Show only `Target` choices.
-2. After the player selects a target, create an `Action` column to its right.
-3. After the player selects an action, assign it and return to Target selection.
+2. After the player selects a Target, create a `Location` column to its right.
+3. After the player selects a Location, create an `Action` column to its right.
+4. After the player selects an Action, assign it and return to Target selection.
 
 Target selection at `80x24` begins like this:
 
 ```text
 |> Target:
 | a) Hero
-| b) Adventurer
-| c) Farmer
 ```
 
-After selecting Adventurer, the representative rows are:
+After selecting Hero and First Shore, representative rows are:
 
 ```text
-|  Target:       |> Action:
-|    Hero        | a) Forest Exploration
-|    Adventurer <|
-|    Farmer      |
+|  Target:  |  Location:      |> Action:
+|    Hero <|    First Shore <| a) Gather
+|          |    Nearby Woods  | b) Fish
+|          |    Nearby Hill   |
 ```
 
 Each active column assigns positional ASCII lowercase keys in display order:
 `a)`, `b)`, `c)`, and so on. The corresponding uppercase letter selects the
 same item. Digits do not select choices, and inactive columns do not display
-selection keys.
+selection keys. Target keys correspond to fixed display slots. A busy Target
+remains visible with `-` in place of its key, and later Targets keep their
+original letters:
 
-The Action choices are the intersection of actions unlocked in the current
-game state and actions supported by the selected target's template. Core must
-validate the same constraints when an action is assigned, including rejecting
-unknown target or action ids.
+```text
+| -  Hero
+| b) Adventurer
+```
 
-Target labels begin at the sixth character in both stages. During Action
-selection, `<` marks the chosen Target immediately before the Target–Action
-separator. This marker makes the relationship visible without relying on
-color.
+Location choices include only discovered or unlocked Locations. Action choices
+are the intersection of unlocked Actions and those supported by both the
+selected Target and Location. Core validates the same constraints and rejects
+unknown ids, locked content, incompatible combinations, and busy Targets.
 
-The Target column's Action-selection width is derived from the widest Target
-heading or label, plus space for padding and the selected marker. The Action
-column receives the remaining width. If an extremely long Target label would
-consume the row, reserve at least 20 columns for Action and truncate the Target
-cell. During Target selection, do not render the separator or reserve any width
-for Action.
+During later stages, `<` marks the chosen Target and Location immediately before
+the following separator. This makes the relationship visible without relying
+on color.
+
+Completed columns derive their width from their widest heading or label plus
+space for the selected marker. The active column receives the remainder, with
+at least 20 columns reserved for it. Truncate completed cells if necessary.
+During Target selection, do not render or reserve later columns.
 
 The user choices region is fixed at 7 rows: one column-heading row followed by
 up to 6 choices.
@@ -221,9 +220,8 @@ up to 6 choices.
 For the current implementation, do not handle or display more than 6 choices.
 Do not show page information in the current UI.
 
-`Times` is not displayed until its gameplay exists. When introduced, it should
-be created as the next selection stage after Action rather than permanently
-occupying an empty column.
+Backspace returns exactly one stage: Action to Location, Location to Target, and
+no change from Target. `Esc` remains a global quit command in every stage.
 
 Future paging behavior may use the up and down arrow keys. If paging is added
 later, headings should include page information such as:

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-06-20
-- Updated: 2026-06-21 — the App/Input/render split below is implemented; see
+- Updated: 2026-08-30 — the App/Input/render split below is implemented; see
   [Decision 0010](../decisions/0010-tui-module-structure.md).
 
 ## Purpose
@@ -66,12 +66,12 @@ binary.
 
 Scope:
 
-- Menu transitions: target selection, action selection, and assigning or
-  restarting a target's quest.
+- Menu transitions through Target, Location, and Action; Backspace navigation;
+  assignment; and rejecting busy Target slots.
 - Quit behavior from every screen.
 - Ignoring key-release and repeat events when only key presses should count.
-- Progressing several targets' active quests concurrently by elapsed ticks.
-- Idle targets showing no progress row, and a finished quest being removed and
+- Progressing several Targets' single active tasks concurrently by elapsed ticks.
+- Idle Targets showing no progress row, and a finished task being removed and
   reported as a completion event (logged) rather than left on screen.
 
 Best practices:
@@ -155,12 +155,13 @@ Recommended approach:
 
 For example, a quest progress test should check:
 
-- After selecting `Hero` and `Forest Exploration`, the hero runs one quest while
-  the other targets stay idle (no progress row).
+- After selecting `Hero`, `Nearby Woods`, and `Hunt`, the Hero runs one task
+  while the other Targets stay idle (no progress row).
 - After 5 seconds of game time, the renderer shows roughly `50%`.
-- After 10 seconds of game time, `advance` emits a `QuestCompleted` event, the
-  quest is removed (its row disappears), and a completion line shows in the log.
-- Any other started target's quest keeps progressing.
+- After 10 seconds of game time, `advance` emits a Location-bearing
+  `QuestCompleted` event, the task is removed (its row disappears), and a
+  completion line shows in the log.
+- Any other started Target's task keeps progressing.
 
 No part of this test should sleep for 10 real seconds.
 
@@ -200,11 +201,13 @@ Translation tests should cover:
 - `q`, `Esc`, and `Ctrl-C` quit.
 - Non-press events are ignored.
 - Positional ASCII letter choices are case-insensitive and digits are ignored.
+- Backspace maps to the internal one-stage-back command.
 - Unknown keys are ignored.
 
 Behavior tests should cover:
 
-- Valid menu choices select the expected target/action.
+- Valid menu choices select the expected Target, Location, and Action.
+- Backspace returns one stage while `Esc` still quits from every stage.
 - Invalid choices leave the current screen unchanged.
 - Quit works from menus and quest execution.
 

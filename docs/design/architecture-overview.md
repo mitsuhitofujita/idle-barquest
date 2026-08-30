@@ -2,7 +2,7 @@
 
 - Status: Current
 - Date: 2026-06-20
-- Updated: 2026-08-29
+- Updated: 2026-08-30
 
 A lightweight map of the project. For the *why* behind each choice, see the
 [decisions](../decisions/).
@@ -41,31 +41,25 @@ just check                # fmt-check + clippy + test
 
 ## Status
 
-Data-driven command loop working: `core` models tick progression (`Progress`,
-`TICKS_PER_SECOND = 1000`) plus a data-driven domain — a `Catalog` template pool
-(`TargetTemplate` / `ActionTemplate` keyed by string ids; `builtin()` seeds
-Hero/Adventurer/Farmer + Forest Exploration) and a `GameState` of live
-`TargetInstance`s, each holding multiple concurrent `quests`, with `spawn_target`
-/ `unlock_action` / `assign_action` / `advance` (see Decision 0007). `advance` returns
-`GameEvent`s and removes finished quests. `core` is split into `time` / `id` /
-`catalog` / `state` modules, with the public API re-exported flat from the crate
-root (see Decision 0009). The `tui` is split into `app` (live state + behaviour),
-`input` (event translation), and `render` (the five-region projection) modules,
-with `main` keeping only the loop and terminal lifecycle (see Decision 0010); it runs
-one non-blocking, frame-paced loop and renders the fixed five-region full-screen
-layout from
-`docs/design/terminal-ui-layout.md` — Title / Information Log / User Choices / Progress /
-Global Menu, a fixed-width three-line ASCII title, a blank row before the
-bottom-aligned log, fixed 7-row choices and 6-row progress regions, three
-separators below the log, and an 80x24 minimum-size guard (see Decisions 0008 and
-0012). The
-Progress region shows one `[===>   ] NN%` bar per active action. User Choices
-starts with only the Target column; selecting a target creates an Action column
-containing the intersection of globally unlocked actions and actions supported
-by that target kind. The player selects entries by positional ASCII letters
-(`a)`, `b)`, ...), and core enforces the same unlock and compatibility rules
-when assigning an action. Completions surface in the log. `balance-sim` runs the
-same model headless. Build/run/test/lint/fmt all pass in the dev container.
+The data-driven command loop models tick progression (`Progress`,
+`TICKS_PER_SECOND = 1000`) and a `Catalog` of `TargetTemplate`,
+`LocationTemplate`, and `ActionTemplate` content keyed by stable string ids.
+`GameState` stores live Targets, unlocked Locations and Actions, and at most one
+task per Target. A task and its completion event both carry Target, Location,
+and Action ids. Assignment rejects unknown or locked content, incompatible
+Target/Action or Location/Action pairs, and busy Targets. Completion removes the
+task and makes the Target available again without automatic repetition.
+
+The built-in starting world contains Hero; First Shore, Nearby Woods, and Nearby
+Hill; and Gather, Fish, and Hunt with Location-specific compatibility. The
+`core` remains split into `time`, `id`, `catalog`, and `state` modules with a flat
+public API. The `tui` remains split into `app`, `input`, and `render`, while
+`main` owns only pacing and terminal lifecycle. User Choices progressively adds
+Location and Action columns after their preceding selections. Backspace returns
+one stage, and busy Target rows retain their fixed letter slot while showing
+`-` instead of a key. Progress uses Target / Location / Action / Progress Bar,
+and completion logs identify all three task dimensions. `balance-sim` runs the
+same model headless. Build, tests, lint, and formatting checks pass.
 
 ## Next steps
 
@@ -73,9 +67,8 @@ same model headless. Build/run/test/lint/fmt all pass in the dev container.
   were built for it).
 - Award resources on quest completion (`advance` already emits `GameEvent`s; add
   reward variants and an inventory).
-- Expand the `Catalog`: more targets/actions and per-target stats; add Times as
-  a later User Choices stage and wire the reserved Progress-region Times / Sub
-  Action columns once those features exist.
+- Expand the `Catalog` with more Targets, Locations, Actions, and per-target
+  stats; add later selection stages only when their gameplay exists.
 - Flesh out tools (balance sim, save inspector, content validator).
 
 ## Out of scope (for now)

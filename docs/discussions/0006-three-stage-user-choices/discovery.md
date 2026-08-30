@@ -1,8 +1,8 @@
 ---
 date: 2026-08-30
 tags: [tui, interaction, gameplay, leveling]
-status: proposed
-worklogs: []
+status: worked
+worklogs: [0005-three-stage-user-choices]
 decisions: []
 ---
 
