@@ -5,14 +5,17 @@
 //! the tick model advances to completion through the real data-driven model
 //! (`Catalog` + `GameState`). Replace with a real simulation later.
 
-use barquest_core::{ActionId, Catalog, GameEvent, GameState, TICKS_PER_SECOND, TargetId};
+use barquest_core::{
+    ActionId, Catalog, GameEvent, GameState, LocationId, TICKS_PER_SECOND, TargetId,
+};
 
 fn main() {
     let catalog = Catalog::builtin();
     let mut state = GameState::seeded(&catalog);
     let hero = TargetId::new("hero");
-    let forest = ActionId::new("forest_exploration");
-    state.assign_action(&catalog, &hero, &forest);
+    let shore = LocationId::new("first_shore");
+    let gather = ActionId::new("gather");
+    state.assign_action(&catalog, &hero, &shore, &gather);
 
     // Advance frame-by-frame (100 ticks) until the hero's quest completes. The
     // quest is removed on completion, so we watch the returned events.
@@ -23,8 +26,8 @@ fn main() {
         let done = events.iter().any(|event| {
             matches!(
                 event,
-                GameEvent::QuestCompleted { target, action }
-                    if *target == hero && *action == forest
+                GameEvent::QuestCompleted { target, location, action }
+                    if *target == hero && *location == shore && *action == gather
             )
         });
         if done {

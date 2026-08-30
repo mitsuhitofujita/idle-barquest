@@ -1,11 +1,11 @@
-//! Data-driven content: immutable [`TargetTemplate`] / [`ActionTemplate`]
-//! definitions and the [`Catalog`] pool that owns them.
+//! Data-driven content: immutable Target, Location, and Action templates plus
+//! the [`Catalog`] pool that owns them.
 //!
 //! Content is kept separate from the live [`GameState`](crate::GameState):
 //! templates are *instantiated* from the catalog into the state, and registering
 //! a new template makes content available without touching live state.
 
-use crate::id::{ActionId, TargetId};
+use crate::id::{ActionId, LocationId, TargetId};
 use crate::time::seconds_to_ticks;
 
 /// Immutable definition of a kind of target — content data, not live state.
@@ -43,12 +43,45 @@ impl TargetTemplate {
     }
 }
 
+/// Immutable definition of a place where actions can be performed.
+#[derive(Debug, Clone)]
+pub struct LocationTemplate {
+    /// Stable id, e.g. `"nearby_woods"`.
+    pub id: LocationId,
+    /// English display name, e.g. `"Nearby Woods"`.
+    pub label: String,
+    /// Actions available at this location.
+    pub actions: Vec<ActionId>,
+}
+
+impl LocationTemplate {
+    /// Builds a location from an id and display label.
+    pub fn new(id: impl Into<LocationId>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            actions: Vec::new(),
+        }
+    }
+
+    /// Adds one compatible action to this location definition.
+    pub fn with_action(mut self, action: impl Into<ActionId>) -> Self {
+        self.actions.push(action.into());
+        self
+    }
+
+    /// Whether this location supports `action`.
+    pub fn supports(&self, action: &ActionId) -> bool {
+        self.actions.contains(action)
+    }
+}
+
 /// Immutable definition of an action: its label and how long it runs (ticks).
 #[derive(Debug, Clone)]
 pub struct ActionTemplate {
-    /// Stable id, e.g. `"forest_exploration"`.
+    /// Stable id, e.g. `"gather"`.
     pub id: ActionId,
-    /// English display name, e.g. `"Forest Exploration"`.
+    /// English display name, e.g. `"Gather"`.
     pub label: String,
     /// Ticks this action takes to complete; used to seed a
     /// [`Progress`](crate::Progress).
@@ -76,6 +109,7 @@ impl ActionTemplate {
 #[derive(Debug, Clone, Default)]
 pub struct Catalog {
     targets: Vec<TargetTemplate>,
+    locations: Vec<LocationTemplate>,
     actions: Vec<ActionTemplate>,
 }
 
@@ -89,19 +123,30 @@ impl Catalog {
     /// order, so this reproduces the previous hard-coded behaviour exactly.
     pub fn builtin() -> Self {
         let mut catalog = Self::new();
-        catalog
-            .register_target(TargetTemplate::new("hero", "Hero").with_action("forest_exploration"));
         catalog.register_target(
-            TargetTemplate::new("adventurer", "Adventurer").with_action("forest_exploration"),
+            TargetTemplate::new("hero", "Hero")
+                .with_action("gather")
+                .with_action("fish")
+                .with_action("hunt"),
         );
-        catalog.register_target(
-            TargetTemplate::new("farmer", "Farmer").with_action("forest_exploration"),
+        catalog.register_location(
+            LocationTemplate::new("first_shore", "First Shore")
+                .with_action("gather")
+                .with_action("fish"),
         );
-        catalog.register_action(ActionTemplate::new(
-            "forest_exploration",
-            "Forest Exploration",
-            seconds_to_ticks(10),
-        ));
+        catalog.register_location(
+            LocationTemplate::new("nearby_woods", "Nearby Woods")
+                .with_action("gather")
+                .with_action("hunt"),
+        );
+        catalog.register_location(
+            LocationTemplate::new("nearby_hill", "Nearby Hill")
+                .with_action("gather")
+                .with_action("hunt"),
+        );
+        for (id, label) in [("gather", "Gather"), ("fish", "Fish"), ("hunt", "Hunt")] {
+            catalog.register_action(ActionTemplate::new(id, label, seconds_to_ticks(10)));
+        }
         catalog
     }
 
@@ -109,6 +154,11 @@ impl Catalog {
     /// are not deduplicated here.
     pub fn register_target(&mut self, template: TargetTemplate) {
         self.targets.push(template);
+    }
+
+    /// Adds a location template to the pool.
+    pub fn register_location(&mut self, template: LocationTemplate) {
+        self.locations.push(template);
     }
 
     /// Adds an action template to the pool. Duplicate ids are a content bug and
@@ -127,9 +177,19 @@ impl Catalog {
         self.actions.iter().find(|a| &a.id == id)
     }
 
+    /// Looks up a location template by id, or `None` for unknown content.
+    pub fn location(&self, id: &LocationId) -> Option<&LocationTemplate> {
+        self.locations.iter().find(|location| &location.id == id)
+    }
+
     /// Iterates target templates in registration (= menu) order.
     pub fn targets(&self) -> impl Iterator<Item = &TargetTemplate> {
         self.targets.iter()
+    }
+
+    /// Iterates location templates in registration (= menu) order.
+    pub fn locations(&self) -> impl Iterator<Item = &LocationTemplate> {
+        self.locations.iter()
     }
 
     /// Iterates action templates in registration (= menu) order.
@@ -146,6 +206,7 @@ mod tests {
     fn menu_lists_are_non_empty() {
         let catalog = Catalog::builtin();
         assert!(catalog.targets().next().is_some());
+        assert!(catalog.locations().next().is_some());
         assert!(catalog.actions().next().is_some());
     }
 
@@ -154,18 +215,23 @@ mod tests {
         let catalog = Catalog::builtin();
 
         let target_ids: Vec<&str> = catalog.targets().map(|t| t.id.as_str()).collect();
-        assert_eq!(target_ids, ["hero", "adventurer", "farmer"]);
+        assert_eq!(target_ids, ["hero"]);
         let target_labels: Vec<&str> = catalog.targets().map(|t| t.label.as_str()).collect();
-        assert_eq!(target_labels, ["Hero", "Adventurer", "Farmer"]);
+        assert_eq!(target_labels, ["Hero"]);
+
+        let location_ids: Vec<&str> = catalog.locations().map(|l| l.id.as_str()).collect();
+        assert_eq!(location_ids, ["first_shore", "nearby_woods", "nearby_hill"]);
+        let location_labels: Vec<&str> = catalog.locations().map(|l| l.label.as_str()).collect();
+        assert_eq!(
+            location_labels,
+            ["First Shore", "Nearby Woods", "Nearby Hill"]
+        );
 
         let action_ids: Vec<&str> = catalog.actions().map(|a| a.id.as_str()).collect();
-        assert_eq!(action_ids, ["forest_exploration"]);
+        assert_eq!(action_ids, ["gather", "fish", "hunt"]);
         assert_eq!(
-            catalog
-                .action(&ActionId::new("forest_exploration"))
-                .unwrap()
-                .label,
-            "Forest Exploration"
+            catalog.action(&ActionId::new("gather")).unwrap().label,
+            "Gather"
         );
 
         // No duplicate target ids in the shipped pool.
@@ -181,30 +247,29 @@ mod tests {
         let catalog = Catalog::builtin();
         assert!(catalog.target(&TargetId::new("hero")).is_some());
         assert!(catalog.target(&TargetId::new("dragon")).is_none());
-        assert!(
-            catalog
-                .action(&ActionId::new("forest_exploration"))
-                .is_some()
-        );
-        assert!(catalog.action(&ActionId::new("fishing")).is_none());
+        assert!(catalog.location(&LocationId::new("first_shore")).is_some());
+        assert!(catalog.location(&LocationId::new("volcano")).is_none());
+        assert!(catalog.action(&ActionId::new("gather")).is_some());
+        assert!(catalog.action(&ActionId::new("mining")).is_none());
     }
 
     #[test]
-    fn builtin_targets_support_the_shipped_action() {
+    fn builtin_compatibility_matches_starting_content() {
         let catalog = Catalog::builtin();
-        let forest = ActionId::new("forest_exploration");
-        for target in catalog.targets() {
-            assert!(target.supports(&forest));
-        }
+        let hero = catalog.target(&TargetId::new("hero")).unwrap();
+        assert!(hero.supports(&ActionId::new("gather")));
+        assert!(hero.supports(&ActionId::new("fish")));
+        assert!(hero.supports(&ActionId::new("hunt")));
+        let shore = catalog.location(&LocationId::new("first_shore")).unwrap();
+        assert!(shore.supports(&ActionId::new("gather")));
+        assert!(shore.supports(&ActionId::new("fish")));
+        assert!(!shore.supports(&ActionId::new("hunt")));
     }
 
     #[test]
     fn action_goal_seeds_a_valid_progress() {
         let catalog = Catalog::builtin();
-        let goal = catalog
-            .action(&ActionId::new("forest_exploration"))
-            .unwrap()
-            .goal_ticks;
+        let goal = catalog.action(&ActionId::new("gather")).unwrap().goal_ticks;
         assert_eq!(goal, seconds_to_ticks(10));
         assert!(goal > 0);
         assert_eq!(crate::Progress::new(goal).goal(), goal);

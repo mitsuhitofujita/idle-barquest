@@ -5,11 +5,11 @@
 //! can share and unit-test the same logic. Time is modelled as discrete
 //! **ticks** here; wall-clock pacing and rendering live in the front-ends.
 //!
-//! Content is **data-driven**: a [`Catalog`] owns the pool of [`TargetTemplate`]
-//! and [`ActionTemplate`] definitions, and a [`GameState`] holds the live world
+//! Content is **data-driven**: a [`Catalog`] owns the pool of [`TargetTemplate`],
+//! [`LocationTemplate`], and [`ActionTemplate`] definitions, and a [`GameState`] holds the live world
 //! — a growable list of [`TargetInstance`]s spawned from those templates plus
-//! the set of unlocked actions. Targets/actions reference templates by string id
-//! ([`TargetId`] / [`ActionId`]) so new content can be added at runtime without
+//! the sets of unlocked locations and actions. Content references templates by string id
+//! ([`TargetId`] / [`LocationId`] / [`ActionId`]) so new content can be added at runtime without
 //! touching the type system, and the state stays trivially serialisable later
 //! (JSON save/load is intentionally not implemented yet).
 //!
@@ -24,7 +24,7 @@ mod id;
 mod state;
 mod time;
 
-pub use catalog::{ActionTemplate, Catalog, TargetTemplate};
-pub use id::{ActionId, TargetId};
+pub use catalog::{ActionTemplate, Catalog, LocationTemplate, TargetTemplate};
+pub use id::{ActionId, LocationId, TargetId};
 pub use state::{GameEvent, GameState, Quest, TargetInstance};
 pub use time::{Progress, TICKS_PER_SECOND, seconds_to_ticks};

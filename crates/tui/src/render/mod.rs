@@ -167,7 +167,7 @@ fn fit(text: &str, width: usize) -> String {
 mod tests {
     use super::*;
     use crate::app::{App, Menu};
-    use barquest_core::{ActionId, TargetId, seconds_to_ticks};
+    use barquest_core::{ActionId, LocationId, TargetId, seconds_to_ticks};
 
     /// Renders at `w x h` and returns one full-width string per terminal row.
     fn screen_rows_at(w: u16, h: u16, app: &App) -> Vec<String> {
@@ -198,35 +198,35 @@ mod tests {
     #[test]
     fn render_shows_the_running_action_row_and_the_menu() {
         let mut app = App::new();
-        // Put the adventurer halfway through forest exploration.
+        // Put the hero halfway through hunting in the woods.
         app.state.assign_action(
             &app.catalog,
-            &TargetId::new("adventurer"),
-            &ActionId::new("forest_exploration"),
+            &TargetId::new("hero"),
+            &LocationId::new("nearby_woods"),
+            &ActionId::new("hunt"),
         );
+        app.state.spawn_target(&app.catalog, &TargetId::new("hero"));
         app.state.advance(seconds_to_ticks(5)); // 50% of the 10s goal
 
         let screen = rendered(&app);
 
-        // The running action renders an apt/mise-style bar with its percent. At
-        // 80 cols the 20% action column truncates the label, so match a prefix.
-        assert!(screen.contains("Adventurer"));
-        assert!(screen.contains("Forest Expl"));
+        assert!(screen.contains("Hero"));
+        assert!(screen.contains("Nearby Woods"));
+        assert!(screen.contains("Hunt"));
         assert!(screen.contains('[') && screen.contains(']'));
         assert!(screen.contains("50%"), "running quest should show 50%");
         // The user-choices region letters every selectable target; Target is the
         // active column (`>`) while choosing one.
         assert!(screen.contains("|> Target:"));
-        assert!(screen.contains("a) Hero"));
-        assert!(screen.contains("c) Farmer"));
+        assert!(screen.contains("-  Hero"));
+        assert!(screen.contains("b) Hero"));
         assert!(!screen.contains("Action:"));
         assert!(!screen.contains("Times:"));
 
         let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
         assert!(rows[8].starts_with("|> Target:"));
-        assert!(rows[9].starts_with("| a) Hero"));
-        assert!(rows[10].starts_with("| b) Adventurer"));
-        assert!(rows[11].starts_with("| c) Farmer"));
+        assert!(rows[9].starts_with("| -  Hero"));
+        assert!(rows[10].starts_with("| b) Hero"));
         assert!(
             rows[8..15]
                 .iter()
@@ -236,31 +236,48 @@ mod tests {
     }
 
     #[test]
-    fn action_menu_marks_the_chosen_target_and_letters_actions() {
+    fn location_menu_marks_target_and_letters_locations() {
         let mut app = App::new();
-        app.menu = Menu::SelectAction {
-            target: TargetId::new("adventurer"),
+        app.menu = Menu::SelectLocation {
+            target: TargetId::new("hero"),
         };
 
         let screen = rendered(&app);
 
-        // Action becomes the active column. Target keys disappear and the
-        // chosen target gets the discovery's trailing `<` marker.
-        assert!(screen.contains("> Action:"));
-        assert!(screen.contains("Adventurer <|"));
+        assert!(screen.contains("> Location:"));
+        assert!(screen.contains("Hero  <|"));
         assert!(!screen.contains("a) Hero"));
-        assert!(screen.contains("a) Forest Exploration"));
+        assert!(screen.contains("a) First Shore"));
+        assert!(screen.contains("c) Nearby Hill"));
 
         let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
-        assert!(rows[8].starts_with("|  Target:       |> Action:"));
-        assert!(rows[9].starts_with("|    Hero        | a) Forest Exploration"));
-        assert!(rows[10].starts_with("|    Adventurer <|"));
-        assert!(rows[11].starts_with("|    Farmer      |"));
         assert!(
             rows[8..15]
                 .iter()
                 .all(|row| row.chars().filter(|&c| c == '|').count() == 2),
-            "Action selection should render a left boundary and one separator"
+            "Location selection should render a left boundary and one separator"
+        );
+    }
+
+    #[test]
+    fn action_menu_marks_target_and_location_and_filters_actions() {
+        let mut app = App::new();
+        app.menu = Menu::SelectAction {
+            target: TargetId::new("hero"),
+            location: LocationId::new("first_shore"),
+        };
+        let screen = rendered(&app);
+        assert!(screen.contains("> Action:"));
+        assert!(screen.contains("Hero  <|"));
+        assert!(screen.contains("First Shore  <|"));
+        assert!(screen.contains("a) Gather"));
+        assert!(screen.contains("b) Fish"));
+        assert!(!screen.contains("c) Hunt"));
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+        assert!(
+            rows[8..15]
+                .iter()
+                .all(|row| row.chars().filter(|&c| c == '|').count() == 3)
         );
     }
 
@@ -291,10 +308,10 @@ mod tests {
     #[test]
     fn render_shows_log_lines_in_the_log_region() {
         let mut app = App::new();
-        app.log = vec!["Hero completed Forest Exploration".to_string()];
+        app.log = vec!["Hero completed Gather at First Shore".to_string()];
 
         let screen = rendered(&app);
-        assert!(screen.contains("Hero completed Forest Exploration"));
+        assert!(screen.contains("Hero completed Gather at First Shore"));
         assert!(screen.is_ascii());
     }
 

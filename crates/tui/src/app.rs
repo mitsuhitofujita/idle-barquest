@@ -1,32 +1,26 @@
-//! The front-end's live state and the behaviour layer that mutates it.
-//!
-//! [`App`] owns the [`Catalog`], the live [`GameState`], the bottom [`Menu`],
-//! and the information log. [`App::update`] applies one translated [`Input`] and
-//! [`App::advance`] steps the simulation, turning completion events into log
-//! lines. Neither reads the wall clock nor the terminal, so both can be driven
-//! directly from tests (see `docs/design/tui-test-policy.md`).
+//! Testable front-end state and behavior for the progressive choices flow.
 
-use barquest_core::{Catalog, GameEvent, GameState, TargetId};
+use barquest_core::{Catalog, GameEvent, GameState, LocationId, TargetId};
 
 use crate::input::Input;
 
-/// Game-time advanced per frame. The TUI frame is 100 ms (see `FRAME` in
-/// `main.rs`), which is 100 ticks at 1000 ticks/s.
 pub(crate) const TICKS_PER_FRAME: u64 = 100;
-/// How many information-log lines to retain; older lines are dropped. Only the
-/// last few (one per visible row) are ever shown, so this just bounds memory.
 const LOG_CAPACITY: usize = 200;
 
-/// Which menu the bottom of the screen is currently showing.
+/// The current stage of `Target -> Location -> Action` selection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum Menu {
-    /// Choose which target to command next.
     SelectTarget,
-    /// Choose an action for the already-chosen target instance.
-    SelectAction { target: TargetId },
+    SelectLocation {
+        target: TargetId,
+    },
+    SelectAction {
+        target: TargetId,
+        location: LocationId,
+    },
 }
 
-/// All mutable front-end state: the content catalog, the live world, the current
-/// menu, and the rolling information log.
 pub(crate) struct App {
     pub(crate) catalog: Catalog,
     pub(crate) state: GameState,
@@ -35,7 +29,6 @@ pub(crate) struct App {
 }
 
 impl App {
-    /// Builds the starting world from the built-in catalog.
     pub(crate) fn new() -> Self {
         let catalog = Catalog::builtin();
         let state = GameState::seeded(&catalog);
@@ -47,44 +40,72 @@ impl App {
         }
     }
 
-    /// Applies one translated input. Returns `true` when the player asked to
-    /// quit; the caller then tears down the terminal and exits.
+    /// Applies one translated input and returns whether the game should quit.
     pub(crate) fn update(&mut self, input: Input) -> bool {
         match input {
             Input::Quit => return true,
-            Input::Select(idx) => self.select(idx),
+            Input::Back => self.back(),
+            Input::Select(index) => self.select(index),
             Input::Ignored => {}
         }
         false
     }
 
-    /// Pick a target by letter, then an available action by letter, which
-    /// (re)starts that target's quest. The letter indexes the active choices
-    /// column. Out-of-range indices are ignored.
-    fn select(&mut self, idx: usize) {
+    fn select(&mut self, index: usize) {
         match &self.menu {
             Menu::SelectTarget => {
-                if let Some(target) = self.state.targets.get(idx).map(|inst| inst.id.clone()) {
-                    self.menu = Menu::SelectAction { target };
+                // Target letters refer to fixed display slots. Busy slots remain
+                // visible but cannot be selected.
+                if let Some(target) = self
+                    .state
+                    .targets
+                    .get(index)
+                    .filter(|target| target.quest.is_none())
+                    .map(|target| target.id.clone())
+                {
+                    self.menu = Menu::SelectLocation { target };
                 }
             }
-            Menu::SelectAction { target } => {
-                // Clone the chosen instance id out so we can reassign `menu` below.
+            Menu::SelectLocation { target } => {
                 let target = target.clone();
+                if let Some(location) = self
+                    .state
+                    .available_locations(&self.catalog)
+                    .nth(index)
+                    .cloned()
+                {
+                    self.menu = Menu::SelectAction { target, location };
+                }
+            }
+            Menu::SelectAction { target, location } => {
+                let target = target.clone();
+                let location = location.clone();
                 let action = self
                     .state
-                    .available_actions(&self.catalog, &target)
-                    .nth(idx)
+                    .available_actions(&self.catalog, &target, &location)
+                    .nth(index)
                     .cloned();
-                if let Some(action) = action {
-                    self.state.assign_action(&self.catalog, &target, &action);
+                if let Some(action) = action
+                    && self
+                        .state
+                        .assign_action(&self.catalog, &target, &location, &action)
+                {
                     self.menu = Menu::SelectTarget;
                 }
             }
         }
     }
 
-    /// Advances the world by `ticks` and logs any completion events.
+    fn back(&mut self) {
+        self.menu = match &self.menu {
+            Menu::SelectTarget => return,
+            Menu::SelectLocation { .. } => Menu::SelectTarget,
+            Menu::SelectAction { target, .. } => Menu::SelectLocation {
+                target: target.clone(),
+            },
+        };
+    }
+
     pub(crate) fn advance(&mut self, ticks: u64) {
         for event in self.state.advance(ticks) {
             push_event(&mut self.log, &self.catalog, &event);
@@ -92,14 +113,23 @@ impl App {
     }
 }
 
-/// Appends one ASCII log line for a game event, resolving ids to labels via the
-/// catalog, and caps the buffer at [`LOG_CAPACITY`] by dropping the oldest line.
 fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
     let line = match event {
-        GameEvent::QuestCompleted { target, action } => {
-            let target = catalog.target(target).map_or("?", |t| t.label.as_str());
-            let action = catalog.action(action).map_or("?", |a| a.label.as_str());
-            format!("{target} completed {action}")
+        GameEvent::QuestCompleted {
+            target,
+            location,
+            action,
+        } => {
+            let target = catalog
+                .target(target)
+                .map_or("?", |value| value.label.as_str());
+            let location = catalog
+                .location(location)
+                .map_or("?", |value| value.label.as_str());
+            let action = catalog
+                .action(action)
+                .map_or("?", |value| value.label.as_str());
+            format!("{target} completed {action} at {location}")
         }
     };
     log.push(line);
@@ -111,129 +141,131 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use barquest_core::{ActionId, ActionTemplate, TargetTemplate, seconds_to_ticks};
+    use barquest_core::{ActionId, seconds_to_ticks};
 
     #[test]
-    fn selecting_a_target_letter_opens_its_action_menu() {
+    fn selection_walks_target_location_action_then_assigns() {
         let mut app = App::new();
-
-        // Select(1) picks the second target (Adventurer).
-        assert!(!app.update(Input::Select(1)));
-        match &app.menu {
-            Menu::SelectAction { target } => assert_eq!(*target, TargetId::new("adventurer")),
-            Menu::SelectTarget => panic!("expected SelectAction"),
-        }
+        assert!(!app.update(Input::Select(0)));
+        assert_eq!(
+            app.menu,
+            Menu::SelectLocation {
+                target: TargetId::new("hero")
+            }
+        );
+        app.update(Input::Select(1));
+        assert_eq!(
+            app.menu,
+            Menu::SelectAction {
+                target: TargetId::new("hero"),
+                location: LocationId::new("nearby_woods")
+            }
+        );
+        // Nearby Woods exposes Gather then Hunt; `b` chooses Hunt.
+        app.update(Input::Select(1));
+        assert_eq!(app.menu, Menu::SelectTarget);
+        let quest = app.state.targets[0].quest.as_ref().unwrap();
+        assert_eq!(quest.location, LocationId::new("nearby_woods"));
+        assert_eq!(quest.action, ActionId::new("hunt"));
     }
 
     #[test]
-    fn selecting_an_action_letter_assigns_and_returns() {
+    fn back_moves_exactly_one_stage_and_does_nothing_at_target() {
+        let mut app = App::new();
+        app.update(Input::Back);
+        assert_eq!(app.menu, Menu::SelectTarget);
+        app.update(Input::Select(0));
+        app.update(Input::Select(0));
+        app.update(Input::Back);
+        assert_eq!(
+            app.menu,
+            Menu::SelectLocation {
+                target: TargetId::new("hero")
+            }
+        );
+        app.update(Input::Back);
+        assert_eq!(app.menu, Menu::SelectTarget);
+    }
+
+    #[test]
+    fn busy_target_fixed_slot_is_ignored_and_freed_after_completion() {
+        let mut app = App::new();
+        app.update(Input::Select(0));
+        app.update(Input::Select(0));
+        app.update(Input::Select(0));
+        assert!(app.state.targets[0].quest.is_some());
+        app.update(Input::Select(0));
+        assert_eq!(app.menu, Menu::SelectTarget);
+        app.advance(seconds_to_ticks(10));
+        app.update(Input::Select(0));
+        assert!(matches!(app.menu, Menu::SelectLocation { .. }));
+    }
+
+    #[test]
+    fn target_after_busy_slot_keeps_its_original_letter() {
         let mut app = App::new();
         let hero = TargetId::new("hero");
-        app.menu = Menu::SelectAction {
-            target: hero.clone(),
-        };
+        let second = app.state.spawn_target(&app.catalog, &hero).unwrap();
+        assert!(app.state.assign_action(
+            &app.catalog,
+            &hero,
+            &LocationId::new("first_shore"),
+            &ActionId::new("gather"),
+        ));
 
-        // Select(0) picks the first unlocked action (Forest Exploration).
         app.update(Input::Select(0));
-
-        assert!(
-            matches!(app.menu, Menu::SelectTarget),
-            "returns to target menu"
-        );
-        let target = app.state.targets.iter().find(|t| t.id == hero).unwrap();
-        assert_eq!(target.quests.len(), 1);
-        assert_eq!(target.quests[0].action, ActionId::new("forest_exploration"));
+        assert_eq!(app.menu, Menu::SelectTarget, "busy `a` slot is invalid");
+        app.update(Input::Select(1));
+        assert_eq!(app.menu, Menu::SelectLocation { target: second });
     }
 
     #[test]
-    fn action_letter_indexes_only_actions_available_to_the_target() {
-        let mut catalog = Catalog::new();
-        catalog.register_target(TargetTemplate::new("hero", "Hero").with_action("explore"));
-        catalog.register_target(TargetTemplate::new("farmer", "Farmer").with_action("farm"));
-        catalog.register_action(ActionTemplate::new("explore", "Explore", 100));
-        catalog.register_action(ActionTemplate::new("farm", "Farm", 100));
-        let state = GameState::seeded(&catalog);
-        let farmer = TargetId::new("farmer");
-        let mut app = App {
-            catalog,
-            state,
-            menu: Menu::SelectAction {
-                target: farmer.clone(),
-            },
-            log: Vec::new(),
-        };
-
-        // `a` is index 0 in the filtered Farmer menu, even though `farm` is
-        // second in the global unlocked-action order.
-        app.update(Input::Select(0));
-
-        let farmer = app
-            .state
-            .targets
-            .iter()
-            .find(|target| target.id == farmer)
-            .unwrap();
-        assert_eq!(farmer.quests.len(), 1);
-        assert_eq!(farmer.quests[0].action, ActionId::new("farm"));
-    }
-
-    #[test]
-    fn out_of_range_and_ignored_inputs_change_nothing() {
+    fn out_of_range_and_ignored_inputs_are_noops() {
         let mut app = App::new();
-
-        // Only three targets, so index 8 selects nothing; Ignored is a no-op.
         for input in [Input::Select(8), Input::Ignored] {
             assert!(!app.update(input));
-            assert!(matches!(app.menu, Menu::SelectTarget));
+            assert_eq!(app.menu, Menu::SelectTarget);
         }
-        assert!(app.state.targets.iter().all(|t| t.quests.is_empty()));
     }
 
     #[test]
-    fn quit_input_reports_quit() {
+    fn quit_works_from_every_stage() {
         let mut app = App::new();
-        assert!(app.update(Input::Quit), "Quit must ask the loop to stop");
-    }
-
-    #[test]
-    fn advancing_past_the_goal_logs_completion_and_clears_the_row() {
-        let mut app = App::new();
-        // Assign Forest Exploration (10s goal) to the hero, then run it out.
-        app.menu = Menu::SelectAction {
+        assert!(app.update(Input::Quit));
+        app.menu = Menu::SelectLocation {
             target: TargetId::new("hero"),
         };
-        app.update(Input::Select(0));
-        assert_eq!(app.state.active_quests().count(), 1, "quest is running");
-
-        app.advance(seconds_to_ticks(10)); // reach the goal in one step
-        assert_eq!(
-            app.state.active_quests().count(),
-            0,
-            "completed quest is removed from the progress region"
-        );
-        assert_eq!(
-            app.log,
-            vec!["Hero completed Forest Exploration".to_string()]
-        );
+        assert!(app.update(Input::Quit));
+        app.menu = Menu::SelectAction {
+            target: TargetId::new("hero"),
+            location: LocationId::new("first_shore"),
+        };
+        assert!(app.update(Input::Quit));
     }
 
     #[test]
-    fn push_event_formats_completion_and_caps_the_buffer() {
+    fn completion_log_contains_target_location_and_action() {
+        let mut app = App::new();
+        app.update(Input::Select(0));
+        app.update(Input::Select(1));
+        app.update(Input::Select(1));
+        app.advance(seconds_to_ticks(10));
+        assert_eq!(app.log, ["Hero completed Hunt at Nearby Woods".to_string()]);
+        assert!(app.state.targets[0].quest.is_none());
+    }
+
+    #[test]
+    fn event_log_capacity_drops_the_oldest_line() {
         let catalog = Catalog::builtin();
         let event = GameEvent::QuestCompleted {
             target: TargetId::new("hero"),
-            action: ActionId::new("forest_exploration"),
+            location: LocationId::new("first_shore"),
+            action: ActionId::new("gather"),
         };
-
-        let mut log = Vec::new();
+        let mut log: Vec<String> = (0..LOG_CAPACITY).map(|i| format!("line {i}")).collect();
         push_event(&mut log, &catalog, &event);
-        assert_eq!(log, vec!["Hero completed Forest Exploration".to_string()]);
-
-        // The buffer never grows past LOG_CAPACITY; the oldest line drops first.
-        let mut full: Vec<String> = (0..LOG_CAPACITY).map(|i| format!("line {i}")).collect();
-        push_event(&mut full, &catalog, &event);
-        assert_eq!(full.len(), LOG_CAPACITY);
-        assert_eq!(full.first().unwrap(), "line 1"); // "line 0" was dropped
-        assert_eq!(full.last().unwrap(), "Hero completed Forest Exploration");
+        assert_eq!(log.len(), LOG_CAPACITY);
+        assert_eq!(log.first().unwrap(), "line 1");
+        assert_eq!(log.last().unwrap(), "Hero completed Gather at First Shore");
     }
 }

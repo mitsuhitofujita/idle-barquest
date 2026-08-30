@@ -16,12 +16,15 @@ pub(crate) enum Input {
     /// The player picked the 0-based entry represented by a letter in the
     /// active choices column (`a` is 0, `b` is 1, and so on).
     Select(usize),
+    /// Return one stage in the choices flow (`Backspace`).
+    Back,
     /// Nothing the game reacts to.
     Ignored,
 }
 
 /// Reduces a raw terminal event to an [`Input`]. Only key *presses* count: `q` /
-/// `Esc` / `Ctrl-C` quit, a letter selects an entry, and anything else is ignored.
+/// `Esc` / `Ctrl-C` quit, Backspace returns one stage, a letter selects an
+/// entry, and anything else is ignored.
 pub(crate) fn translate(event: &Event) -> Input {
     let Event::Key(key) = event else {
         return Input::Ignored;
@@ -32,6 +35,7 @@ pub(crate) fn translate(event: &Event) -> Input {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => Input::Quit,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Input::Quit,
+        KeyCode::Backspace => Input::Back,
         KeyCode::Char(c) => selection_index(c).map_or(Input::Ignored, Input::Select),
         _ => Input::Ignored,
     }
@@ -83,6 +87,12 @@ mod tests {
         assert_eq!(translate(&press('b')), Input::Select(1));
         assert_eq!(translate(&press('F')), Input::Select(5));
         assert_eq!(translate(&press('1')), Input::Ignored);
+    }
+
+    #[test]
+    fn backspace_translates_to_back() {
+        let backspace = Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(translate(&backspace), Input::Back);
     }
 
     #[test]
