@@ -1,8 +1,8 @@
 //! Rendering: the pure projection from [`App`] state onto a terminal buffer.
 //!
-//! This module owns the fixed five-region stack from
-//! `docs/design/terminal-ui-layout.md` (Title / Information Log / User Choices /
-//! Progress / Global Menu) and the ASCII chrome separating the lower regions. The
+//! This module owns the fixed seven-region stack from
+//! `docs/design/terminal-ui-layout.md` (Title / Information Log / Settlement /
+//! User Choices / Progress / Materials / Global Menu) and the ASCII chrome separating the lower regions. The
 //! two fixed data regions live in submodules: [`progress`] and [`choices`]. Renderers never
 //! mutate game state or read input, so they can be exercised with a
 //! `TestBackend` (see `docs/design/tui-test-policy.md`).
@@ -12,6 +12,7 @@ use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::widgets::Paragraph;
 
 use crate::app::App;
+use crate::materials;
 
 mod choices;
 mod progress;
@@ -20,12 +21,15 @@ mod progress;
 /// refuses to draw its UI (see `docs/design/terminal-ui-layout.md`).
 const MIN_WIDTH: u16 = 80;
 const MIN_HEIGHT: u16 = 24;
-/// Fixed heights (rows) of the title, user-choices, progress, and global-menu
+/// Fixed heights (rows) of the title, Settlement, user-choices, progress,
+/// Materials, and global-menu
 /// regions. The three separators below the information log are one row each;
 /// the information log takes whatever vertical space is left.
 const TITLE_H: u16 = 3;
-const CHOICES_H: u16 = 7;
-const PROGRESS_H: u16 = 6;
+const SETTLEMENT_H: u16 = 1;
+const CHOICES_H: u16 = 6;
+const PROGRESS_H: u16 = 5;
+const MATERIALS_H: u16 = 1;
 const MENU_H: u16 = 1;
 /// The first log-region row is always blank to separate the title from content.
 const LOG_GAP_H: u16 = 1;
@@ -39,9 +43,9 @@ const TITLE: &str = concat!(
     r"'@~/::::::::::::::::::::::::::::::\~@'",
 );
 
-/// Lays out the screen as the fixed five-region stack from
-/// `docs/design/terminal-ui-layout.md`: Title / Information Log / User Choices /
-/// Progress / Global Menu. The first log row leaves a gap below the title; ASCII
+/// Lays out the screen as the fixed seven-region stack from
+/// `docs/design/terminal-ui-layout.md`: Title / Information Log / Settlement /
+/// User Choices / Progress / Materials / Global Menu. The first log row leaves a gap below the title; ASCII
 /// separator rows divide every later region. Below the minimum terminal size it
 /// draws only a warning and leaves the game UI hidden.
 pub(crate) fn render(frame: &mut Frame, app: &App) {
@@ -56,27 +60,33 @@ pub(crate) fn render(frame: &mut Frame, app: &App) {
         title,
         log_area,
         sep1,
+        settlement,
         choices,
         sep2,
         progress,
+        material_area,
         sep3,
         menu_area,
     ] = Layout::vertical([
         Constraint::Length(TITLE_H),
         Constraint::Fill(1),
         Constraint::Length(1),
+        Constraint::Length(SETTLEMENT_H),
         Constraint::Length(CHOICES_H),
         Constraint::Length(1),
         Constraint::Length(PROGRESS_H),
+        Constraint::Length(MATERIALS_H),
         Constraint::Length(1),
         Constraint::Length(MENU_H),
     ])
     .areas(area);
 
     render_title(frame, title);
+    render_settlement(frame, settlement, app);
     progress::render_progress(frame, progress, &app.catalog, &app.state);
     choices::render_choices(frame, choices, &app.catalog, &app.state, &app.menu);
     render_log(frame, log_area, &app.log);
+    render_materials(frame, material_area, app);
     render_menu(frame, menu_area);
     for sep in [sep1, sep2, sep3] {
         render_separator(frame, sep);
@@ -89,9 +99,32 @@ fn render_title(frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(TITLE).alignment(Alignment::Center), area);
 }
 
+/// Draws the current player development base, independently of task Location.
+fn render_settlement(frame: &mut Frame, area: Rect, app: &App) {
+    let label = app
+        .catalog
+        .settlement(&app.state.current_settlement)
+        .map_or("?", |settlement| settlement.label.as_str());
+    frame.render_widget(Paragraph::new(format!(" Settlement: {label}")), area);
+}
+
+/// Draws acquired resources using the same width calculation as navigation.
+fn render_materials(frame: &mut Frame, area: Rect, app: &App) {
+    let viewport = materials::viewport(
+        &app.catalog,
+        &app.state,
+        app.material_start.as_ref(),
+        area.width,
+    );
+    frame.render_widget(Paragraph::new(viewport.line), area);
+}
+
 /// Draws the always-visible global menu: commands valid from any UI state.
 fn render_menu(frame: &mut Frame, area: Rect) {
-    frame.render_widget(Paragraph::new(" ESC) Quit"), area);
+    frame.render_widget(
+        Paragraph::new(" ,) Previous Materials  .) Next Materials  BACKSPACE) Back  ESC) Quit"),
+        area,
+    );
 }
 
 /// Draws the information log with a permanent blank first row. Game events are
@@ -167,7 +200,9 @@ fn fit(text: &str, width: usize) -> String {
 mod tests {
     use super::*;
     use crate::app::{App, Menu};
-    use barquest_core::{ActionId, LocationId, TargetId, seconds_to_ticks};
+    use barquest_core::{
+        ActionId, LocationId, ResourceId, ResourceStack, TargetId, seconds_to_ticks,
+    };
 
     /// Renders at `w x h` and returns one full-width string per terminal row.
     fn screen_rows_at(w: u16, h: u16, app: &App) -> Vec<String> {
@@ -224,11 +259,11 @@ mod tests {
         assert!(!screen.contains("Times:"));
 
         let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
-        assert!(rows[8].starts_with("|> Target:"));
-        assert!(rows[9].starts_with("| -  Hero"));
-        assert!(rows[10].starts_with("| b) Hero"));
+        assert!(rows[9].starts_with("|> Target:"));
+        assert!(rows[10].starts_with("| -  Hero"));
+        assert!(rows[11].starts_with("| b) Hero"));
         assert!(
-            rows[8..15]
+            rows[9..15]
                 .iter()
                 .all(|row| row.chars().filter(|&c| c == '|').count() == 1),
             "Target selection should render only its left boundary"
@@ -252,7 +287,7 @@ mod tests {
 
         let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
         assert!(
-            rows[8..15]
+            rows[9..15]
                 .iter()
                 .all(|row| row.chars().filter(|&c| c == '|').count() == 2),
             "Location selection should render a left boundary and one separator"
@@ -275,7 +310,7 @@ mod tests {
         assert!(!screen.contains("c) Hunt"));
         let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
         assert!(
-            rows[8..15]
+            rows[9..15]
                 .iter()
                 .all(|row| row.chars().filter(|&c| c == '|').count() == 3)
         );
@@ -336,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn render_shows_the_five_region_chrome() {
+    fn render_shows_the_seven_region_chrome() {
         let app = App::new(0);
         let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
         let screen = rows.concat();
@@ -354,8 +389,13 @@ mod tests {
             "log separator should follow the four-row minimum log region"
         );
         assert!(rows[3].trim().is_empty(), "first log row should be blank");
+        assert_eq!(rows[8].trim(), "Settlement: Awakening Shore");
         assert!(rows[15].contains("+----+"), "choices separator moved");
+        assert!(rows[21].trim().is_empty(), "materials should start empty");
         assert!(rows[22].contains("+----+"), "progress separator moved");
+        assert!(screen.contains(",) Previous Materials"));
+        assert!(screen.contains(".) Next Materials"));
+        assert!(screen.contains("BACKSPACE) Back"));
         assert!(screen.contains("ESC) Quit"), "missing global menu");
         assert!(screen.contains("+----+"), "missing separators");
     }
@@ -370,9 +410,84 @@ mod tests {
         assert!(rows[3].trim().is_empty(), "title gap must remain one row");
         assert_eq!(rows[11].trim(), "latest event");
         assert!(rows[12].contains("+----+"), "log should receive five rows");
-        assert!(rows[20].contains("+----+"), "choices must stay seven rows");
-        assert!(rows[27].contains("+----+"), "progress must stay six rows");
+        assert_eq!(rows[13].trim(), "Settlement: Awakening Shore");
+        assert!(rows[20].contains("+----+"), "choices must stay six rows");
+        assert!(rows[26].trim().is_empty(), "materials row moved");
+        assert!(rows[27].contains("+----+"), "progress must stay five rows");
         assert!(rows[28].contains("ESC) Quit"), "menu must remain last");
+    }
+
+    #[test]
+    fn render_shows_only_acquired_materials_in_catalog_order() {
+        let mut app = App::new(0);
+        app.state.inventory = vec![
+            ResourceStack {
+                resource: ResourceId::new("vine"),
+                amount: 0,
+            },
+            ResourceStack {
+                resource: ResourceId::new("twig"),
+                amount: 10,
+            },
+            ResourceStack {
+                resource: ResourceId::new("pebble"),
+                amount: 34,
+            },
+        ];
+
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+
+        assert!(rows[21].contains("Pebble: 34 | Twig: 10 | Vine: 0"));
+        assert!(!rows[21].contains("Grass"));
+    }
+
+    #[test]
+    fn choices_and_progress_display_at_most_five_entries() {
+        use barquest_core::TargetTemplate;
+
+        let mut choices_app = App::new(0);
+        for index in 1..=5 {
+            let id = format!("extra_{index}");
+            let label = format!("Extra {index}");
+            choices_app
+                .catalog
+                .register_target(TargetTemplate::new(id.clone(), label));
+            choices_app
+                .state
+                .spawn_target(&choices_app.catalog, &TargetId::new(id));
+        }
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &choices_app);
+        assert!(rows[14].contains("Extra 4"));
+        assert!(!rows.concat().contains("Extra 5"));
+
+        let mut progress_app = App::new(0);
+        for _ in 0..5 {
+            progress_app
+                .state
+                .spawn_target(&progress_app.catalog, &TargetId::new("hero"));
+        }
+        let target_ids: Vec<_> = progress_app
+            .state
+            .targets
+            .iter()
+            .map(|target| target.id.clone())
+            .collect();
+        for target in target_ids {
+            assert!(progress_app.state.assign_action(
+                &progress_app.catalog,
+                &target,
+                &LocationId::new("first_shore"),
+                &ActionId::new("gather"),
+            ));
+        }
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &progress_app);
+        assert_eq!(
+            rows[16..21]
+                .iter()
+                .filter(|row| row.contains("Hero"))
+                .count(),
+            5
+        );
     }
 
     #[test]

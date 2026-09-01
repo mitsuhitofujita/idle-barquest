@@ -1,11 +1,12 @@
-//! Data-driven content: immutable Target, Location, and Action templates plus
+//! Data-driven content: immutable Target, Settlement, Location, Action, and
+//! Resource templates plus
 //! the [`Catalog`] pool that owns them.
 //!
 //! Content is kept separate from the live [`GameState`](crate::GameState):
 //! templates are *instantiated* from the catalog into the state, and registering
 //! a new template makes content available without touching live state.
 
-use crate::id::{ActionId, LocationId, ResourceId, TargetId};
+use crate::id::{ActionId, LocationId, ResourceId, SettlementId, TargetId};
 use crate::random::RandomSource;
 use crate::time::seconds_to_ticks;
 
@@ -41,6 +42,25 @@ impl TargetTemplate {
     /// it has been unlocked in a particular saved game.
     pub fn supports(&self, action: &ActionId) -> bool {
         self.actions.contains(action)
+    }
+}
+
+/// Immutable definition of a player settlement.
+#[derive(Debug, Clone)]
+pub struct SettlementTemplate {
+    /// Stable id, e.g. `"awakening_shore"`.
+    pub id: SettlementId,
+    /// English display name, e.g. `"Awakening Shore"`.
+    pub label: String,
+}
+
+impl SettlementTemplate {
+    /// Builds a settlement from an id and display label.
+    pub fn new(id: impl Into<SettlementId>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+        }
     }
 }
 
@@ -223,6 +243,7 @@ impl RewardTable {
 #[derive(Debug, Clone, Default)]
 pub struct Catalog {
     targets: Vec<TargetTemplate>,
+    settlements: Vec<SettlementTemplate>,
     locations: Vec<LocationTemplate>,
     actions: Vec<ActionTemplate>,
     resources: Vec<ResourceTemplate>,
@@ -245,6 +266,10 @@ impl Catalog {
                 .with_action("fish")
                 .with_action("hunt"),
         );
+        catalog.register_settlement(SettlementTemplate::new(
+            "awakening_shore",
+            "Awakening Shore",
+        ));
         catalog.register_location(
             LocationTemplate::new("first_shore", "First Shore")
                 .with_action("gather")
@@ -304,6 +329,11 @@ impl Catalog {
         self.targets.push(template);
     }
 
+    /// Adds a settlement template to the pool.
+    pub fn register_settlement(&mut self, template: SettlementTemplate) {
+        self.settlements.push(template);
+    }
+
     /// Adds a location template to the pool.
     pub fn register_location(&mut self, template: LocationTemplate) {
         self.locations.push(template);
@@ -328,6 +358,13 @@ impl Catalog {
     /// Looks up a target template by id, or `None` for unknown content.
     pub fn target(&self, id: &TargetId) -> Option<&TargetTemplate> {
         self.targets.iter().find(|t| &t.id == id)
+    }
+
+    /// Looks up a settlement template by id, or `None` for unknown content.
+    pub fn settlement(&self, id: &SettlementId) -> Option<&SettlementTemplate> {
+        self.settlements
+            .iter()
+            .find(|settlement| &settlement.id == id)
     }
 
     /// Looks up an action template by id, or `None` for unknown content.
@@ -355,6 +392,11 @@ impl Catalog {
     /// Iterates target templates in registration (= menu) order.
     pub fn targets(&self) -> impl Iterator<Item = &TargetTemplate> {
         self.targets.iter()
+    }
+
+    /// Iterates settlement templates in registration order.
+    pub fn settlements(&self) -> impl Iterator<Item = &SettlementTemplate> {
+        self.settlements.iter()
     }
 
     /// Iterates location templates in registration (= menu) order.
@@ -395,6 +437,7 @@ mod tests {
     fn menu_lists_are_non_empty() {
         let catalog = Catalog::builtin();
         assert!(catalog.targets().next().is_some());
+        assert!(catalog.settlements().next().is_some());
         assert!(catalog.locations().next().is_some());
         assert!(catalog.actions().next().is_some());
     }
@@ -407,6 +450,12 @@ mod tests {
         assert_eq!(target_ids, ["hero"]);
         let target_labels: Vec<&str> = catalog.targets().map(|t| t.label.as_str()).collect();
         assert_eq!(target_labels, ["Hero"]);
+
+        let settlements: Vec<(&str, &str)> = catalog
+            .settlements()
+            .map(|settlement| (settlement.id.as_str(), settlement.label.as_str()))
+            .collect();
+        assert_eq!(settlements, [("awakening_shore", "Awakening Shore")]);
 
         let location_ids: Vec<&str> = catalog.locations().map(|l| l.id.as_str()).collect();
         assert_eq!(location_ids, ["first_shore", "nearby_woods", "nearby_hill"]);
@@ -436,6 +485,12 @@ mod tests {
         let catalog = Catalog::builtin();
         assert!(catalog.target(&TargetId::new("hero")).is_some());
         assert!(catalog.target(&TargetId::new("dragon")).is_none());
+        assert!(
+            catalog
+                .settlement(&SettlementId::new("awakening_shore"))
+                .is_some()
+        );
+        assert!(catalog.settlement(&SettlementId::new("camp")).is_none());
         assert!(catalog.location(&LocationId::new("first_shore")).is_some());
         assert!(catalog.location(&LocationId::new("volcano")).is_none());
         assert!(catalog.action(&ActionId::new("gather")).is_some());

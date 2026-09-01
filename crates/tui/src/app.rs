@@ -1,10 +1,11 @@
 //! Testable front-end state and behavior for the progressive choices flow.
 
 use barquest_core::{
-    Catalog, GameEvent, GameState, LocationId, RewardOutcome, SeededRandom, TargetId,
+    Catalog, GameEvent, GameState, LocationId, ResourceId, RewardOutcome, SeededRandom, TargetId,
 };
 
 use crate::input::Input;
+use crate::materials;
 
 pub(crate) const TICKS_PER_FRAME: u64 = 100;
 const LOG_CAPACITY: usize = 200;
@@ -28,6 +29,7 @@ pub(crate) struct App {
     pub(crate) state: GameState,
     pub(crate) menu: Menu,
     pub(crate) log: Vec<String>,
+    pub(crate) material_start: Option<ResourceId>,
     random: SeededRandom,
 }
 
@@ -40,19 +42,39 @@ impl App {
             state,
             menu: Menu::SelectTarget,
             log: Vec::new(),
+            material_start: None,
             random: SeededRandom::new(random_seed),
         }
     }
 
     /// Applies one translated input and returns whether the game should quit.
-    pub(crate) fn update(&mut self, input: Input) -> bool {
+    pub(crate) fn update(&mut self, input: Input, material_width: u16) -> bool {
         match input {
             Input::Quit => return true,
             Input::Back => self.back(),
             Input::Select(index) => self.select(index),
+            Input::PreviousMaterials => self.move_materials(material_width, false),
+            Input::NextMaterials => self.move_materials(material_width, true),
             Input::Ignored => {}
         }
         false
+    }
+
+    fn move_materials(&mut self, width: u16, forward: bool) {
+        let viewport = materials::viewport(
+            &self.catalog,
+            &self.state,
+            self.material_start.as_ref(),
+            width,
+        );
+        let destination = if forward {
+            viewport.next_start
+        } else {
+            viewport.previous_start
+        };
+        if let Some(destination) = destination {
+            self.material_start = Some(destination);
+        }
     }
 
     fn select(&mut self, index: usize) {
@@ -155,19 +177,30 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use barquest_core::{ActionId, ResourceId, seconds_to_ticks};
+    use barquest_core::{ActionId, ResourceId, ResourceStack, seconds_to_ticks};
+
+    fn acquire_all_materials(app: &mut App) {
+        app.state.inventory = app
+            .catalog
+            .resources()
+            .map(|resource| ResourceStack {
+                resource: resource.id.clone(),
+                amount: 1,
+            })
+            .collect();
+    }
 
     #[test]
     fn selection_walks_target_location_action_then_assigns() {
         let mut app = App::new(0);
-        assert!(!app.update(Input::Select(0)));
+        assert!(!app.update(Input::Select(0), 80));
         assert_eq!(
             app.menu,
             Menu::SelectLocation {
                 target: TargetId::new("hero")
             }
         );
-        app.update(Input::Select(1));
+        app.update(Input::Select(1), 80);
         assert_eq!(
             app.menu,
             Menu::SelectAction {
@@ -176,7 +209,7 @@ mod tests {
             }
         );
         // Nearby Woods exposes Gather then Hunt; `b` chooses Hunt.
-        app.update(Input::Select(1));
+        app.update(Input::Select(1), 80);
         assert_eq!(app.menu, Menu::SelectTarget);
         let quest = app.state.targets[0].quest.as_ref().unwrap();
         assert_eq!(quest.location, LocationId::new("nearby_woods"));
@@ -186,32 +219,32 @@ mod tests {
     #[test]
     fn back_moves_exactly_one_stage_and_does_nothing_at_target() {
         let mut app = App::new(0);
-        app.update(Input::Back);
+        app.update(Input::Back, 80);
         assert_eq!(app.menu, Menu::SelectTarget);
-        app.update(Input::Select(0));
-        app.update(Input::Select(0));
-        app.update(Input::Back);
+        app.update(Input::Select(0), 80);
+        app.update(Input::Select(0), 80);
+        app.update(Input::Back, 80);
         assert_eq!(
             app.menu,
             Menu::SelectLocation {
                 target: TargetId::new("hero")
             }
         );
-        app.update(Input::Back);
+        app.update(Input::Back, 80);
         assert_eq!(app.menu, Menu::SelectTarget);
     }
 
     #[test]
     fn busy_target_fixed_slot_is_ignored_and_freed_after_completion() {
         let mut app = App::new(0);
-        app.update(Input::Select(0));
-        app.update(Input::Select(0));
-        app.update(Input::Select(0));
+        app.update(Input::Select(0), 80);
+        app.update(Input::Select(0), 80);
+        app.update(Input::Select(0), 80);
         assert!(app.state.targets[0].quest.is_some());
-        app.update(Input::Select(0));
+        app.update(Input::Select(0), 80);
         assert_eq!(app.menu, Menu::SelectTarget);
         app.advance(seconds_to_ticks(10));
-        app.update(Input::Select(0));
+        app.update(Input::Select(0), 80);
         assert!(matches!(app.menu, Menu::SelectLocation { .. }));
     }
 
@@ -227,9 +260,9 @@ mod tests {
             &ActionId::new("gather"),
         ));
 
-        app.update(Input::Select(0));
+        app.update(Input::Select(0), 80);
         assert_eq!(app.menu, Menu::SelectTarget, "busy `a` slot is invalid");
-        app.update(Input::Select(1));
+        app.update(Input::Select(1), 80);
         assert_eq!(app.menu, Menu::SelectLocation { target: second });
     }
 
@@ -237,7 +270,7 @@ mod tests {
     fn out_of_range_and_ignored_inputs_are_noops() {
         let mut app = App::new(0);
         for input in [Input::Select(8), Input::Ignored] {
-            assert!(!app.update(input));
+            assert!(!app.update(input, 80));
             assert_eq!(app.menu, Menu::SelectTarget);
         }
     }
@@ -245,24 +278,76 @@ mod tests {
     #[test]
     fn quit_works_from_every_stage() {
         let mut app = App::new(0);
-        assert!(app.update(Input::Quit));
+        assert!(app.update(Input::Quit, 80));
         app.menu = Menu::SelectLocation {
             target: TargetId::new("hero"),
         };
-        assert!(app.update(Input::Quit));
+        assert!(app.update(Input::Quit, 80));
         app.menu = Menu::SelectAction {
             target: TargetId::new("hero"),
             location: LocationId::new("first_shore"),
         };
-        assert!(app.update(Input::Quit));
+        assert!(app.update(Input::Quit, 80));
+    }
+
+    #[test]
+    fn material_navigation_is_global_and_moves_one_catalog_item() {
+        let mut app = App::new(0);
+        acquire_all_materials(&mut app);
+        app.menu = Menu::SelectAction {
+            target: TargetId::new("hero"),
+            location: LocationId::new("first_shore"),
+        };
+
+        app.update(Input::NextMaterials, 40);
+        assert_eq!(app.material_start, Some(ResourceId::new("twig")));
+        assert!(matches!(app.menu, Menu::SelectAction { .. }));
+
+        app.update(Input::PreviousMaterials, 40);
+        assert_eq!(app.material_start, Some(ResourceId::new("pebble")));
+        app.update(Input::PreviousMaterials, 40);
+        assert_eq!(app.material_start, Some(ResourceId::new("pebble")));
+    }
+
+    #[test]
+    fn next_material_is_a_noop_when_every_remaining_item_fits() {
+        let mut app = App::new(0);
+        acquire_all_materials(&mut app);
+
+        app.update(Input::NextMaterials, 200);
+
+        assert!(app.material_start.is_none());
+    }
+
+    #[test]
+    fn material_start_id_survives_amount_width_and_acquisition_changes() {
+        let mut app = App::new(0);
+        app.state.inventory.push(ResourceStack {
+            resource: ResourceId::new("twig"),
+            amount: 9,
+        });
+        app.material_start = Some(ResourceId::new("twig"));
+
+        app.state.inventory[0].amount = 10_000;
+        app.state.inventory.push(ResourceStack {
+            resource: ResourceId::new("pebble"),
+            amount: 1,
+        });
+
+        assert_eq!(app.material_start, Some(ResourceId::new("twig")));
+        assert!(
+            materials::viewport(&app.catalog, &app.state, app.material_start.as_ref(), 30,)
+                .line
+                .contains("Twig: 10000")
+        );
     }
 
     #[test]
     fn completion_log_contains_target_location_action_and_resource() {
         let mut app = App::new(0);
-        app.update(Input::Select(0));
-        app.update(Input::Select(1));
-        app.update(Input::Select(1));
+        app.update(Input::Select(0), 80);
+        app.update(Input::Select(1), 80);
+        app.update(Input::Select(1), 80);
         app.advance(seconds_to_ticks(10));
         assert_eq!(
             app.log,

@@ -18,6 +18,10 @@ pub(crate) enum Input {
     Select(usize),
     /// Return one stage in the choices flow (`Backspace`).
     Back,
+    /// Move the acquired-material viewport one item toward Catalog start (`,`).
+    PreviousMaterials,
+    /// Move the acquired-material viewport one item toward Catalog end (`.`).
+    NextMaterials,
     /// Nothing the game reacts to.
     Ignored,
 }
@@ -36,6 +40,8 @@ pub(crate) fn translate(event: &Event) -> Input {
         KeyCode::Char('q') | KeyCode::Esc => Input::Quit,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Input::Quit,
         KeyCode::Backspace => Input::Back,
+        KeyCode::Char(',') => Input::PreviousMaterials,
+        KeyCode::Char('.') => Input::NextMaterials,
         KeyCode::Char(c) => selection_index(c).map_or(Input::Ignored, Input::Select),
         _ => Input::Ignored,
     }
@@ -93,6 +99,12 @@ mod tests {
     fn backspace_translates_to_back() {
         let backspace = Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
         assert_eq!(translate(&backspace), Input::Back);
+    }
+
+    #[test]
+    fn punctuation_translates_to_material_navigation() {
+        assert_eq!(translate(&press(',')), Input::PreviousMaterials);
+        assert_eq!(translate(&press('.')), Input::NextMaterials);
     }
 
     #[test]

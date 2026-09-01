@@ -1,7 +1,7 @@
 //! Live, serializable-friendly game state and deterministic task progression.
 
 use crate::catalog::{Catalog, RewardOutcome};
-use crate::id::{ActionId, LocationId, ResourceId, TargetId};
+use crate::id::{ActionId, LocationId, ResourceId, SettlementId, TargetId};
 use crate::random::RandomSource;
 use crate::time::Progress;
 
@@ -53,8 +53,10 @@ pub struct TargetInstance {
 }
 
 /// The live game world.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct GameState {
+    /// Settlement currently serving as the player's development base.
+    pub current_settlement: SettlementId,
     /// Every live target, in stable display order.
     pub targets: Vec<TargetInstance>,
     /// Discovered or unlocked locations, in menu order.
@@ -66,13 +68,25 @@ pub struct GameState {
 }
 
 impl GameState {
-    /// An empty world with no targets or unlocks.
-    pub fn new() -> Self {
-        Self::default()
+    /// An empty world rooted at one current settlement.
+    pub fn new(current_settlement: impl Into<SettlementId>) -> Self {
+        Self {
+            current_settlement: current_settlement.into(),
+            targets: Vec::new(),
+            unlocked_locations: Vec::new(),
+            unlocked_actions: Vec::new(),
+            inventory: Vec::new(),
+        }
     }
 
     /// Seeds one instance per target template and unlocks shipped locations and actions.
     pub fn seeded(catalog: &Catalog) -> Self {
+        let current_settlement = catalog
+            .settlements()
+            .next()
+            .expect("seeded catalog has a settlement")
+            .id
+            .clone();
         let targets = catalog
             .targets()
             .map(|template| TargetInstance {
@@ -87,6 +101,7 @@ impl GameState {
             .collect();
         let unlocked_actions = catalog.actions().map(|action| action.id.clone()).collect();
         Self {
+            current_settlement,
             targets,
             unlocked_locations,
             unlocked_actions,
@@ -256,6 +271,22 @@ impl GameState {
             .map_or(0, |stack| stack.amount)
     }
 
+    /// Iterates acquired, known resources in Catalog registration order.
+    ///
+    /// Stack presence records acquisition independently of quantity, so a
+    /// zero-quantity stack remains in this iterator.
+    pub fn acquired_resources<'a>(
+        &'a self,
+        catalog: &'a Catalog,
+    ) -> impl Iterator<Item = (&'a crate::ResourceTemplate, &'a ResourceStack)> {
+        catalog.resources().filter_map(|resource| {
+            self.inventory
+                .iter()
+                .find(|stack| stack.resource == resource.id)
+                .map(|stack| (resource, stack))
+        })
+    }
+
     fn unique_instance_id(&self, template: &TargetId) -> TargetId {
         if !self.targets.iter().any(|target| &target.id == template) {
             return template.clone();
@@ -303,7 +334,7 @@ fn add_resource(inventory: &mut Vec<ResourceStack>, resource: &ResourceId, amoun
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::{ActionTemplate, LocationTemplate, TargetTemplate};
+    use crate::catalog::{ActionTemplate, LocationTemplate, SettlementTemplate, TargetTemplate};
     use crate::time::seconds_to_ticks;
 
     struct FixedRandom(u32);
@@ -327,6 +358,14 @@ mod tests {
     fn seeded_state_matches_starting_content() {
         let catalog = Catalog::builtin();
         let state = GameState::seeded(&catalog);
+        assert_eq!(
+            state.current_settlement,
+            SettlementId::new("awakening_shore")
+        );
+        assert_eq!(
+            catalog.settlement(&state.current_settlement).unwrap().label,
+            "Awakening Shore"
+        );
         assert_eq!(state.targets.len(), 1);
         assert_eq!(state.targets[0].template_id, TargetId::new("hero"));
         assert!(state.targets[0].quest.is_none());
@@ -344,7 +383,7 @@ mod tests {
     #[test]
     fn unlock_location_and_action_are_validated_and_idempotent() {
         let catalog = Catalog::builtin();
-        let mut state = GameState::new();
+        let mut state = GameState::new("awakening_shore");
         let shore = LocationId::new("first_shore");
         let gather = ActionId::new("gather");
         assert!(state.unlock_location(&catalog, &shore));
@@ -473,6 +512,29 @@ mod tests {
     }
 
     #[test]
+    fn acquired_resources_use_catalog_order_and_keep_zero_stacks() {
+        let catalog = Catalog::builtin();
+        let mut state = GameState::seeded(&catalog);
+        state.inventory = vec![
+            ResourceStack {
+                resource: ResourceId::new("vine"),
+                amount: 0,
+            },
+            ResourceStack {
+                resource: ResourceId::new("pebble"),
+                amount: 34,
+            },
+        ];
+
+        let acquired: Vec<(&str, u64)> = state
+            .acquired_resources(&catalog)
+            .map(|(resource, stack)| (resource.id.as_str(), stack.amount))
+            .collect();
+
+        assert_eq!(acquired, [("pebble", 34), ("vine", 0)]);
+    }
+
+    #[test]
     fn nothing_reward_does_not_change_inventory() {
         let catalog = Catalog::builtin();
         let mut state = GameState::seeded(&catalog);
@@ -498,6 +560,7 @@ mod tests {
     fn custom_content_enforces_target_compatibility() {
         let mut catalog = Catalog::new();
         catalog.register_target(TargetTemplate::new("fisher", "Fisher").with_action("fish"));
+        catalog.register_settlement(SettlementTemplate::new("camp", "Camp"));
         catalog.register_location(LocationTemplate::new("woods", "Woods").with_action("hunt"));
         catalog.register_action(ActionTemplate::new("fish", "Fish", 100));
         catalog.register_action(ActionTemplate::new("hunt", "Hunt", 100));

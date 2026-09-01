@@ -1,7 +1,7 @@
 //! Stable string ids that join the [`Catalog`](crate::Catalog) (content) to the
 //! [`GameState`](crate::GameState) (live world).
 //!
-//! Targets, locations, actions, and resources reference templates by id rather
+//! Targets, settlements, locations, actions, and resources reference templates by id rather
 //! than by borrow, so the state owns no borrows, stays cheaply `Clone`, and is
 //! trivially serialisable later.
 
@@ -30,6 +30,34 @@ impl From<&str> for TargetId {
 }
 
 impl From<String> for TargetId {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+/// Stable string id for a player settlement, e.g. `"awakening_shore"`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SettlementId(pub String);
+
+impl SettlementId {
+    /// Builds an id from anything string-like.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    /// Borrows the id as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for SettlementId {
+    fn from(value: &str) -> Self {
+        Self(value.to_owned())
+    }
+}
+
+impl From<String> for SettlementId {
     fn from(value: String) -> Self {
         Self(value)
     }

@@ -3,13 +3,15 @@
 //! Drives the command loop and renders the game state from `barquest-core`.
 //! The world is data-driven: a `Catalog` supplies the target/action templates
 //! and a `GameState` holds the live target instances. The screen is the fixed
-//! five-region layout from `docs/design/terminal-ui-layout.md` (Title, Information
-//! Log, User Choices, Progress, and Global Menu), separated by ASCII rules, and is
+//! seven-region layout from `docs/design/terminal-ui-layout.md` (Title,
+//! Information Log, Settlement, User Choices, Progress, Materials, and Global
+//! Menu), separated by ASCII rules, and is
 //! hidden behind a warning below the supported `80x24` terminal size. Progress
 //! bars fill **concurrently** like an `apt` / `mise` update. The player picks a
 //! target, location, and action by letter in a progressive user-choices panel
 //! (`>` marks the active column; `<` marks completed selections); Backspace
-//! returns one stage, while `q` / `Esc` / `Ctrl-C` quits from any screen.
+//! returns one stage, `,` / `.` moves through acquired materials, and `q` /
+//! `Esc` / `Ctrl-C` quits from any screen.
 //!
 //! The binary is split into three concerns: [`app`] owns the mutable game state
 //! and its behaviour, [`input`] translates terminal events into intent, and
@@ -18,6 +20,7 @@
 
 mod app;
 mod input;
+mod materials;
 mod render;
 
 use std::io;
@@ -65,7 +68,7 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
             }
             if event::poll(deadline - now)? {
                 let event = event::read()?;
-                if app.update(input::translate(&event)) {
+                if app.update(input::translate(&event), terminal.size()?.width) {
                     return Ok(());
                 }
                 // Redraw immediately so menu navigation feels responsive.
