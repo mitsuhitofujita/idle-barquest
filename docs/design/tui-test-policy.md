@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-06-20
-- Updated: 2026-08-30 — the App/Input/render split below is implemented; see
+- Updated: 2026-09-01 — the App/Input/materials/render split below is implemented; see
   [Decision 0010](../decisions/0010-tui-module-structure.md).
 
 ## Purpose
@@ -56,7 +56,7 @@ As the TUI grows, introduce a small testable app layer in `barquest-tui`.
 Recommended shape:
 
 ```text
-input event + elapsed ticks -> App::update() -> new App state + command
+input event + material viewport width -> App::update() -> new App state + command
 App state -> render() -> terminal buffer
 ```
 
@@ -68,6 +68,8 @@ Scope:
 
 - Menu transitions through Target, Location, and Action; Backspace navigation;
   assignment; and rejecting busy Target slots.
+- Width-aware acquired-material navigation from any selection stage, including
+  no-op behavior when all remaining items fit or an edge is reached.
 - Quit behavior from every screen.
 - Ignoring key-release and repeat events when only key presses should count.
 - Progressing several Targets' single active tasks concurrently by elapsed ticks.
@@ -90,8 +92,11 @@ Ratatui rendering can be tested without a real terminal by drawing into a
 Scope:
 
 - The right screen is rendered for each app state.
-- Important text is present: menu title, choices, quit hint, quest title,
-  percent label, tick details.
+- Important text is present: Settlement, choices, material totals, global
+  commands, task dimensions, and percent labels.
+- Settlement resolution, empty and populated Materials rows, Catalog ordering,
+  zero quantities, label-only truncation, stable arrow columns, and hidden-item
+  indicators.
 - Layout remains usable at representative terminal sizes.
 - Progress gauges render expected labels at 0%, partial progress, and 100%.
 
@@ -203,12 +208,15 @@ Translation tests should cover:
 - Non-press events are ignored.
 - Positional ASCII letter choices are case-insensitive and digits are ignored.
 - Backspace maps to the internal one-stage-back command.
+- `,` and `.` map to previous and next acquired-material commands.
 - Unknown keys are ignored.
 
 Behavior tests should cover:
 
 - Valid menu choices select the expected Target, Location, and Action.
 - Backspace returns one stage while `Esc` still quits from every stage.
+- Material navigation remains independent of the current selection stage and
+  uses the rendered width to determine whether right-side content is hidden.
 - Invalid choices leave the current screen unchanged.
 - Quit works from menus and quest execution.
 
@@ -262,9 +270,10 @@ gate unless they are proven reliable in CI.
 Recommendations 1–5 are implemented as of 2026-06-21 (Decision 0010); 6 is ongoing.
 
 1. ~~Extract TUI state from `main.rs` into an `App` type.~~ Done — `app::App`.
-2. ~~Move menu/quest progression into `App::update(input, elapsed)`.~~ Done —
-   `App::update(Input)` handles selection; `App::advance(ticks)` steps the world
-   and logs completion events.
+2. ~~Move menu/quest progression into explicit app updates.~~ Done —
+   `App::update(Input, material_width)` handles selection and width-aware
+   material navigation; `App::advance(ticks)` steps the world and logs
+   completion events.
 3. ~~Keep `run()` as a thin loop that reads terminal events, computes elapsed
    time, calls `App::update`, and draws `render(frame, &app)`.~~ Done —
    `main.rs` is the frame loop only.
@@ -272,7 +281,8 @@ Recommendations 1–5 are implemented as of 2026-06-21 (Decision 0010); 6 is ong
    screens.~~ Done — `render` module tests.
 5. ~~Add input translation tests for quit keys, positional choices, and ignored
    events.~~ Done — `input` module tests cover `q`/`Esc`/`Ctrl-C`, lowercase and
-   uppercase letters, ignored digits, key releases, and unknown keys.
+   uppercase letters, `,`/`.` material navigation, ignored digits, key releases,
+   and unknown keys.
 6. Keep existing `core` tests as the main gameplay safety net and expand them as
    rewards/resources are introduced.
 

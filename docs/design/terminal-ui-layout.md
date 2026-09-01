@@ -2,7 +2,7 @@
 
 - Status: Current
 - Date: 2026-06-21
-- Updated: 2026-08-30
+- Updated: 2026-09-01
 
 This document defines the terminal UI layout requirements for `IDLE BARQUEST`.
 It is written as an implementation-oriented reference for AI agents and developers.
@@ -42,18 +42,22 @@ The screen is divided vertically into the following regions, in this fixed order
 
 1. Title
 2. Information Log
-3. User Choices
-4. Progress
-5. Global Menu
+3. Settlement
+4. User Choices
+5. Progress
+6. Materials
+7. Global Menu
 
 The title region is always 3 rows.
 
 The global menu region is always 1 row.
 
-The user choices region is always 7 rows: one heading row and up to 6 choice
+The Settlement and Materials regions are always 1 row each.
+
+The user choices region is always 6 rows: one heading row and up to 5 choice
 rows.
 
-The progress region is always 6 rows and displays up to 6 active actions.
+The progress region is always 5 rows and displays up to 5 active actions.
 
 The information log region is at least 4 rows. Its first row is always blank,
 leaving visual space below the title. The remaining vertical space is assigned
@@ -66,11 +70,13 @@ At the minimum supported height, the rows are allocated as follows:
 | --- | ---: |
 | Title | 3 |
 | Information Log | 4 |
-| Information Log / User Choices separator | 1 |
-| User Choices | 7 |
+| Information Log / Settlement and User Choices separator | 1 |
+| Settlement | 1 |
+| User Choices | 6 |
 | User Choices / Progress separator | 1 |
-| Progress | 6 |
-| Progress / Global Menu separator | 1 |
+| Progress | 5 |
+| Materials | 1 |
+| Progress and Materials / Global Menu separator | 1 |
 | Global Menu | 1 |
 | **Total** | **24** |
 
@@ -87,8 +93,9 @@ Text must not wrap inside fixed-height regions. If a label or value is too long 
 Do not add a full-width separator between Title and Information Log. The first
 row of Information Log remains blank to provide visual separation.
 
-Place a separator row between each of the remaining region pairs: Information
-Log and User Choices, User Choices and Progress, and Progress and Global Menu.
+Keep three separator rows: after Information Log, after User Choices, and after
+Materials. Do not add a separator between Settlement and User Choices or
+between Progress and Materials.
 
 Separators should be built from standard ASCII characters. They should include visual marks at the left side, center, and right side.
 
@@ -123,8 +130,8 @@ The title is a fixed header. It should not change based on the current selection
 
 ## Progress Region
 
-The progress region is 6 rows high. It summarizes running actions with one row
-per active action and displays at most 6 actions.
+The progress region is 5 rows high. It summarizes running actions with one row
+per active action and displays at most 5 actions.
 
 Use the following column proportions:
 
@@ -214,10 +221,10 @@ space for the selected marker. The active column receives the remainder, with
 at least 20 columns reserved for it. Truncate completed cells if necessary.
 During Target selection, do not render or reserve later columns.
 
-The user choices region is fixed at 7 rows: one column-heading row followed by
-up to 6 choices.
+The user choices region is fixed at 6 rows: one column-heading row followed by
+up to 5 choices.
 
-For the current implementation, do not handle or display more than 6 choices.
+For the current implementation, do not handle or display more than 5 choices.
 Do not show page information in the current UI.
 
 Backspace returns exactly one stage: Action to Location, Location to Target, and
@@ -257,7 +264,53 @@ Hero completed Gather at Nearby Hill: Pebble x1
 Hero completed Fish at First Shore: Nothing
 ```
 
-The inventory total is intentionally not rendered yet.
+The acquired-resource totals are rendered in the Materials region described
+below.
+
+## Settlement Region
+
+Settlement is the player's development base, not the Location where a Target
+performs an Action. Resolve the current Settlement id from `GameState` through
+the Catalog and render its English label on one line:
+
+```text
+ Settlement: Awakening Shore
+```
+
+The shipped starting Settlement is `awakening_shore` (`Awakening Shore`). The
+current UI does not switch, discover, or unlock Settlements.
+
+## Materials Region
+
+The Materials row displays only Resources whose inventory stack exists. Stack
+presence means the Resource has been acquired, so a stack remains visible when
+its quantity is zero. Display them in Resource Catalog registration order,
+independently of inventory acquisition order. Leave the entire row blank while
+no known Resource stack exists.
+
+Format each item as `Label: amount` and separate adjacent items with ` | `.
+Reserve one arrow column plus one space on each side of the full-width content
+area:
+
+```text
+< Pebble: 34 | Twig: 10 >
+```
+
+Fill the content area from the current first Resource until another complete
+item plus separator no longer fits. Do not use a fixed item count. Normally,
+do not truncate labels or quantities; show fewer items instead. If the first
+item alone cannot fit, truncate only its label and preserve `: amount`.
+
+The TUI stores the first visible ResourceId rather than an array index or page
+number. Quantity digit changes and newly acquired Resources must not move that
+start while the ResourceId still exists. `,` moves the start one acquired
+Catalog item earlier. `.` moves it one item later only when the current viewport
+has hidden content on the right. Both commands are global and are no-ops at
+their boundaries or while the row is empty.
+
+Show `<` only when an earlier acquired Resource exists, and `>` only when
+content is hidden on the right. Replace either unavailable arrow with a space so
+the content begins in the same column when arrows appear or disappear.
 
 ## Global Menu Region
 
@@ -265,10 +318,11 @@ The global menu is always visible at the bottom of the screen.
 
 It contains commands that are valid from any UI state.
 
-The current global menu only includes quit:
+The global menu always includes material navigation, one-stage Backspace, and
+quit, even when an operation is currently a no-op:
 
 ```text
-ESC) Quit
+ ,) Previous Materials  .) Next Materials  BACKSPACE) Back  ESC) Quit
 ```
 
 ## Implementation Notes For Agents
@@ -284,8 +338,9 @@ When implementing or modifying the UI, preserve these invariants:
 - Text does not wrap inside fixed-height regions.
 - Important state is not color-only.
 - The title and global menu remain fixed.
-- The user choices region has one heading plus at most 6 entries.
-- The progress region displays at most 6 active actions.
+- Settlement and acquired Materials remain visible in their fixed rows.
+- The user choices region has one heading plus at most 5 entries.
+- The progress region displays at most 5 active actions.
 - Extra terminal height expands only the information log.
 
 ## Related decisions
