@@ -1,9 +1,9 @@
 ---
 date: 2026-09-01
 tags: [tui, layout, interaction, materials]
-status: worked
+status: decided
 worklogs: [0007-location-materials-display]
-decisions: []
+decisions: [0015-settlement-and-materials-display]
 ---
 
 「拠点」と「素材」表示行を追加する。`User Choices`と`Progress`をそれぞれ一行ずつ削る。

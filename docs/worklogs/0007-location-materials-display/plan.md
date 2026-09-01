@@ -1,8 +1,8 @@
 ---
 date: 2026-09-01
-status: in-progress
+status: merged
 discussions: [0008-location-materials-display]
-decisions: []
+decisions: [0015-settlement-and-materials-display]
 pr: null
 ---
 
