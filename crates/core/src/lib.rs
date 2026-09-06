@@ -27,8 +27,8 @@ mod state;
 mod time;
 
 pub use catalog::{
-    ActionTemplate, Catalog, LocationTemplate, ResourceTemplate, RewardEntry, RewardOutcome,
-    RewardTable, SettlementTemplate, TargetTemplate,
+    ActionTemplate, Catalog, LocationTemplate, ResourceTemplate, Reward, RewardEntry, RewardTable,
+    SettlementTemplate, TargetTemplate,
 };
 pub use id::{ActionId, LocationId, ResourceId, SettlementId, TargetId};
 pub use random::{RandomSource, SeededRandom};

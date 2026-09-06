@@ -1,7 +1,7 @@
 //! Testable front-end state and behavior for the progressive choices flow.
 
 use barquest_core::{
-    Catalog, GameEvent, GameState, LocationId, ResourceId, RewardOutcome, SeededRandom, TargetId,
+    Catalog, GameEvent, GameState, LocationId, ResourceId, SeededRandom, TargetId,
 };
 
 use crate::input::Input;
@@ -145,7 +145,7 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
             target,
             location,
             action,
-            outcome,
+            rewards,
         } => {
             let target = catalog
                 .target(target)
@@ -156,16 +156,21 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
             let action = catalog
                 .action(action)
                 .map_or("?", |value| value.label.as_str());
-            let outcome = match outcome {
-                RewardOutcome::Resource { resource, amount } => {
-                    let resource = catalog
-                        .resource(resource)
-                        .map_or("?", |value| value.label.as_str());
-                    format!("{resource} x{amount}")
-                }
-                RewardOutcome::Nothing => "Nothing".to_string(),
+            let rewards = if rewards.is_empty() {
+                "Nothing".to_string()
+            } else {
+                rewards
+                    .iter()
+                    .map(|reward| {
+                        let resource = catalog
+                            .resource(&reward.resource)
+                            .map_or("?", |value| value.label.as_str());
+                        format!("{resource} x{}", reward.amount)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
             };
-            format!("{target} completed {action} at {location}: {outcome}")
+            format!("{target} completed {action} at {location}: {rewards}")
         }
     };
     log.push(line);
@@ -177,7 +182,7 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use barquest_core::{ActionId, ResourceId, ResourceStack, seconds_to_ticks};
+    use barquest_core::{ActionId, ResourceId, ResourceStack, Reward, seconds_to_ticks};
 
     fn acquire_all_materials(app: &mut App) {
         app.state.inventory = app
@@ -357,13 +362,13 @@ mod tests {
     }
 
     #[test]
-    fn completion_log_reports_explicit_nothing() {
+    fn completion_log_reports_nothing_for_an_empty_reward_list() {
         let catalog = Catalog::builtin();
         let event = GameEvent::QuestCompleted {
             target: TargetId::new("hero"),
             location: LocationId::new("first_shore"),
             action: ActionId::new("fish"),
-            outcome: RewardOutcome::Nothing,
+            rewards: vec![],
         };
         let mut log = Vec::new();
 
@@ -373,16 +378,44 @@ mod tests {
     }
 
     #[test]
+    fn completion_log_formats_multiple_and_aggregated_rewards() {
+        let catalog = Catalog::builtin();
+        let event = GameEvent::QuestCompleted {
+            target: TargetId::new("hero"),
+            location: LocationId::new("nearby_hill"),
+            action: ActionId::new("gather"),
+            rewards: vec![
+                Reward {
+                    resource: ResourceId::new("grass"),
+                    amount: 1,
+                },
+                Reward {
+                    resource: ResourceId::new("pebble"),
+                    amount: 2,
+                },
+            ],
+        };
+        let mut log = Vec::new();
+
+        push_event(&mut log, &catalog, &event);
+
+        assert_eq!(
+            log,
+            ["Hero completed Gather at Nearby Hill: Grass x1, Pebble x2"]
+        );
+    }
+
+    #[test]
     fn event_log_capacity_drops_the_oldest_line() {
         let catalog = Catalog::builtin();
         let event = GameEvent::QuestCompleted {
             target: TargetId::new("hero"),
             location: LocationId::new("first_shore"),
             action: ActionId::new("gather"),
-            outcome: RewardOutcome::Resource {
+            rewards: vec![Reward {
                 resource: ResourceId::new("pebble"),
                 amount: 1,
-            },
+            }],
         };
         let mut log: Vec<String> = (0..LOG_CAPACITY).map(|i| format!("line {i}")).collect();
         push_event(&mut log, &catalog, &event);

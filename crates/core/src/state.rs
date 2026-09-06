@@ -1,6 +1,6 @@
 //! Live, serializable-friendly game state and deterministic task progression.
 
-use crate::catalog::{Catalog, RewardOutcome};
+use crate::catalog::{Catalog, Reward};
 use crate::id::{ActionId, LocationId, ResourceId, SettlementId, TargetId};
 use crate::random::RandomSource;
 use crate::time::Progress;
@@ -27,8 +27,8 @@ pub enum GameEvent {
         location: LocationId,
         /// Action that completed.
         action: ActionId,
-        /// Exclusive result selected from the matching reward table.
-        outcome: RewardOutcome,
+        /// Ordered, aggregated resources awarded by the matching reward table.
+        rewards: Vec<Reward>,
     },
 }
 
@@ -238,18 +238,18 @@ impl GameState {
             });
             if completed {
                 let quest = target.quest.take().expect("completed task exists");
-                let outcome = catalog
+                let rewards = catalog
                     .reward_table(&quest.location, &quest.action)
                     .expect("assigned task has a reward table")
-                    .draw(random);
-                if let RewardOutcome::Resource { resource, amount } = &outcome {
-                    add_resource(inventory, resource, *amount);
+                    .roll(random);
+                for reward in &rewards {
+                    add_resource(inventory, &reward.resource, reward.amount);
                 }
                 events.push(GameEvent::QuestCompleted {
                     target: target.id.clone(),
                     location: quest.location,
                     action: quest.action,
-                    outcome,
+                    rewards,
                 });
             }
         }
@@ -304,15 +304,11 @@ impl GameState {
 
 fn valid_reward_table(catalog: &Catalog, location: &LocationId, action: &ActionId) -> bool {
     catalog.reward_table(location, action).is_some_and(|table| {
-        table.total_chance() == 100
+        table.entries().next().is_some()
             && table.entries().all(|entry| {
-                entry.chance > 0
-                    && match &entry.outcome {
-                        RewardOutcome::Resource { resource, amount } => {
-                            *amount > 0 && catalog.resource(resource).is_some()
-                        }
-                        RewardOutcome::Nothing => true,
-                    }
+                (1..=100).contains(&entry.chance)
+                    && entry.amount > 0
+                    && catalog.resource(&entry.resource).is_some()
             })
     })
 }
@@ -334,7 +330,10 @@ fn add_resource(inventory: &mut Vec<ResourceStack>, resource: &ResourceId, amoun
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::{ActionTemplate, LocationTemplate, SettlementTemplate, TargetTemplate};
+    use crate::catalog::{
+        ActionTemplate, LocationTemplate, ResourceTemplate, RewardTable, SettlementTemplate,
+        TargetTemplate,
+    };
     use crate::time::seconds_to_ticks;
 
     struct FixedRandom(u32);
@@ -463,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn completion_contains_location_and_frees_target() {
+    fn completion_contains_ordered_rewards_and_frees_target() {
         let catalog = Catalog::builtin();
         let mut state = GameState::seeded(&catalog);
         let (hero, shore, gather) = ids();
@@ -484,11 +483,21 @@ mod tests {
                 target: hero.clone(),
                 location: shore.clone(),
                 action: gather.clone(),
-                outcome: RewardOutcome::Resource {
-                    resource: ResourceId::new("pebble"),
-                    amount: 1,
-                },
+                rewards: vec![
+                    Reward {
+                        resource: ResourceId::new("seaweed_fragment"),
+                        amount: 1,
+                    },
+                    Reward {
+                        resource: ResourceId::new("pebble"),
+                        amount: 1,
+                    },
+                ],
             }]
+        );
+        assert_eq!(
+            state.resource_count(&ResourceId::new("seaweed_fragment")),
+            1
         );
         assert_eq!(state.resource_count(&ResourceId::new("pebble")), 1);
         assert!(state.targets[0].quest.is_none());
@@ -508,7 +517,11 @@ mod tests {
         }
 
         assert_eq!(state.resource_count(&ResourceId::new("pebble")), 2);
-        assert_eq!(state.inventory.len(), 1);
+        assert_eq!(
+            state.resource_count(&ResourceId::new("seaweed_fragment")),
+            2
+        );
+        assert_eq!(state.inventory.len(), 2);
     }
 
     #[test]
@@ -535,13 +548,28 @@ mod tests {
     }
 
     #[test]
-    fn nothing_reward_does_not_change_inventory() {
-        let catalog = Catalog::builtin();
+    fn empty_reward_result_does_not_change_inventory() {
+        let mut catalog = Catalog::new();
+        catalog.register_target(TargetTemplate::new("hero", "Hero").with_action("fish"));
+        catalog.register_settlement(SettlementTemplate::new(
+            "awakening_shore",
+            "Awakening Shore",
+        ));
+        catalog.register_location(
+            LocationTemplate::new("first_shore", "First Shore").with_action("fish"),
+        );
+        catalog.register_action(ActionTemplate::new("fish", "Fish", seconds_to_ticks(10)));
+        catalog.register_resource(ResourceTemplate::new("small_fish", "Small Fish"));
+        catalog.register_reward_table(RewardTable::new("first_shore", "fish").with_resource(
+            "small_fish",
+            1,
+            30,
+        ));
         let mut state = GameState::seeded(&catalog);
         let hero = TargetId::new("hero");
         let shore = LocationId::new("first_shore");
         let fish = ActionId::new("fish");
-        let mut random = FixedRandom(10);
+        let mut random = FixedRandom(30);
         assert!(state.assign_action(&catalog, &hero, &shore, &fish));
 
         assert_eq!(
@@ -550,10 +578,33 @@ mod tests {
                 target: hero,
                 location: shore,
                 action: fish,
-                outcome: RewardOutcome::Nothing,
+                rewards: vec![],
             }]
         );
         assert!(state.inventory.is_empty());
+    }
+
+    #[test]
+    fn assignment_accepts_duplicate_resources_and_no_certain_entry() {
+        let mut catalog = Catalog::new();
+        catalog.register_target(TargetTemplate::new("hero", "Hero").with_action("gather"));
+        catalog.register_settlement(SettlementTemplate::new("camp", "Camp"));
+        catalog.register_location(LocationTemplate::new("field", "Field").with_action("gather"));
+        catalog.register_action(ActionTemplate::new("gather", "Gather", 100));
+        catalog.register_resource(ResourceTemplate::new("grass", "Grass"));
+        catalog.register_reward_table(
+            RewardTable::new("field", "gather")
+                .with_resource("grass", 1, 40)
+                .with_resource("grass", 2, 60),
+        );
+        let mut state = GameState::seeded(&catalog);
+
+        assert!(state.assign_action(
+            &catalog,
+            &TargetId::new("hero"),
+            &LocationId::new("field"),
+            &ActionId::new("gather"),
+        ));
     }
 
     #[test]

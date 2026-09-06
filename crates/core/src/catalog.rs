@@ -139,30 +139,27 @@ impl ResourceTemplate {
     }
 }
 
-/// The mutually exclusive result of one reward-table draw.
+/// One aggregated resource awarded by a completed action.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RewardOutcome {
-    /// Add `amount` of one resource to the live inventory.
-    Resource {
-        /// Resource template to award.
-        resource: ResourceId,
-        /// Number of units awarded.
-        amount: u64,
-    },
-    /// The action completed but awarded no resource.
-    Nothing,
+pub struct Reward {
+    /// Resource template to award.
+    pub resource: ResourceId,
+    /// Number of units awarded.
+    pub amount: u64,
 }
 
-/// One weighted outcome in a [`RewardTable`].
+/// One independently rolled resource in a [`RewardTable`].
 #[derive(Debug, Clone)]
 pub struct RewardEntry {
-    /// Outcome selected when a roll lands in this entry's range.
-    pub outcome: RewardOutcome,
-    /// Integer percentage chance. A valid table totals exactly 100.
+    /// Resource template to award when this entry succeeds.
+    pub resource: ResourceId,
+    /// Number of units awarded when this entry succeeds.
+    pub amount: u64,
+    /// Integer percentage chance in `1..=100`.
     pub chance: u32,
 }
 
-/// Exclusive reward outcomes for one Location and Action combination.
+/// Ordered independent reward rolls for one Location and Action combination.
 #[derive(Debug, Clone)]
 pub struct RewardTable {
     /// Location whose completion uses this table.
@@ -182,7 +179,7 @@ impl RewardTable {
         }
     }
 
-    /// Adds a resource outcome with an integer percentage chance.
+    /// Adds an independently rolled resource with an integer percentage chance.
     pub fn with_resource(
         mut self,
         resource: impl Into<ResourceId>,
@@ -190,46 +187,41 @@ impl RewardTable {
         chance: u32,
     ) -> Self {
         self.entries.push(RewardEntry {
-            outcome: RewardOutcome::Resource {
-                resource: resource.into(),
-                amount,
-            },
+            resource: resource.into(),
+            amount,
             chance,
         });
         self
     }
 
-    /// Adds an explicit no-reward outcome.
-    pub fn with_nothing(mut self, chance: u32) -> Self {
-        self.entries.push(RewardEntry {
-            outcome: RewardOutcome::Nothing,
-            chance,
-        });
-        self
-    }
-
-    /// Iterates outcomes in draw order.
+    /// Iterates rewards in roll order.
     pub fn entries(&self) -> impl Iterator<Item = &RewardEntry> {
         self.entries.iter()
     }
 
-    /// Sum of all outcome chances.
-    pub fn total_chance(&self) -> u32 {
-        self.entries.iter().map(|entry| entry.chance).sum()
-    }
-
-    pub(crate) fn draw(&self, random: &mut impl RandomSource) -> RewardOutcome {
-        let total = self.total_chance();
-        assert_eq!(total, 100, "reward-table chance must total 100");
-        let roll = random.below(total);
-        let mut boundary = 0;
+    pub(crate) fn roll(&self, random: &mut impl RandomSource) -> Vec<Reward> {
+        assert!(!self.entries.is_empty(), "reward table must not be empty");
+        let mut rewards: Vec<Reward> = Vec::new();
         for entry in &self.entries {
-            boundary += entry.chance;
-            if roll < boundary {
-                return entry.outcome.clone();
+            assert!(
+                (1..=100).contains(&entry.chance),
+                "reward chance must be in 1..=100"
+            );
+            if entry.chance == 100 || random.below(100) < entry.chance {
+                if let Some(reward) = rewards
+                    .iter_mut()
+                    .find(|reward| reward.resource == entry.resource)
+                {
+                    reward.amount = reward.amount.saturating_add(entry.amount);
+                } else {
+                    rewards.push(Reward {
+                        resource: entry.resource.clone(),
+                        amount: entry.amount,
+                    });
+                }
             }
         }
-        unreachable!("a bounded roll must select an outcome")
+        rewards
     }
 }
 
@@ -297,26 +289,29 @@ impl Catalog {
             ("seaweed_fragment", "Seaweed Fragment"),
             ("small_fang", "Small Fang"),
             ("awful_meat", "Awful Meat"),
+            ("tiny_magic_stone", "Tiny Magic Stone"),
         ] {
             catalog.register_resource(ResourceTemplate::new(id, label));
         }
         for table in [
             RewardTable::new("nearby_hill", "gather")
-                .with_resource("grass", 1, 50)
+                .with_resource("grass", 1, 100)
                 .with_resource("pebble", 1, 50),
-            RewardTable::new("nearby_hill", "hunt").with_resource("awful_meat", 1, 100),
+            RewardTable::new("nearby_hill", "hunt")
+                .with_resource("awful_meat", 1, 100)
+                .with_resource("small_fang", 1, 60),
             RewardTable::new("nearby_woods", "gather")
-                .with_resource("vine", 1, 20)
-                .with_resource("twig", 1, 80),
+                .with_resource("vine", 1, 60)
+                .with_resource("twig", 1, 100),
             RewardTable::new("nearby_woods", "hunt")
-                .with_resource("awful_meat", 1, 90)
-                .with_resource("small_fang", 1, 10),
+                .with_resource("awful_meat", 1, 100)
+                .with_resource("tiny_magic_stone", 1, 10),
             RewardTable::new("first_shore", "fish")
-                .with_resource("small_fish", 1, 10)
-                .with_nothing(90),
+                .with_resource("small_fish", 1, 30)
+                .with_resource("seaweed_fragment", 1, 100),
             RewardTable::new("first_shore", "gather")
-                .with_resource("seaweed_fragment", 1, 20)
-                .with_resource("pebble", 1, 80),
+                .with_resource("seaweed_fragment", 1, 60)
+                .with_resource("pebble", 1, 100),
         ] {
             catalog.register_reward_table(table);
         }
@@ -424,12 +419,26 @@ impl Catalog {
 mod tests {
     use super::*;
 
-    struct FixedRandom(u32);
+    struct SequenceRandom {
+        values: Vec<u32>,
+        consumed: usize,
+    }
 
-    impl RandomSource for FixedRandom {
+    impl SequenceRandom {
+        fn new(values: impl IntoIterator<Item = u32>) -> Self {
+            Self {
+                values: values.into_iter().collect(),
+                consumed: 0,
+            }
+        }
+    }
+
+    impl RandomSource for SequenceRandom {
         fn below(&mut self, upper_exclusive: u32) -> u32 {
-            assert!(self.0 < upper_exclusive);
-            self.0
+            let value = self.values[self.consumed];
+            self.consumed += 1;
+            assert!(value < upper_exclusive);
+            value
         }
     }
 
@@ -540,6 +549,7 @@ mod tests {
                 "seaweed_fragment",
                 "small_fang",
                 "awful_meat",
+                "tiny_magic_stone",
             ]
         );
         let mut unique = resource_ids.clone();
@@ -551,13 +561,11 @@ mod tests {
         for table in catalog.reward_tables() {
             assert!(catalog.location(&table.location).is_some());
             assert!(catalog.action(&table.action).is_some());
-            assert_eq!(table.total_chance(), 100);
+            assert!(table.entries().next().is_some());
             for entry in table.entries() {
-                assert!(entry.chance > 0);
-                if let RewardOutcome::Resource { resource, amount } = &entry.outcome {
-                    assert!(catalog.resource(resource).is_some());
-                    assert_eq!(*amount, 1);
-                }
+                assert!((1..=100).contains(&entry.chance));
+                assert!(catalog.resource(&entry.resource).is_some());
+                assert_eq!(entry.amount, 1);
             }
             reward_pairs.push((table.location.as_str(), table.action.as_str()));
         }
@@ -579,33 +587,109 @@ mod tests {
     }
 
     #[test]
-    fn reward_draws_switch_at_exclusive_table_boundaries() {
+    fn builtin_reward_entries_match_the_shipped_balance() {
         let catalog = Catalog::builtin();
-        let table = catalog
-            .reward_table(&LocationId::new("nearby_hill"), &ActionId::new("gather"))
-            .unwrap();
-        assert_eq!(
-            table.draw(&mut FixedRandom(49)),
-            RewardOutcome::Resource {
-                resource: ResourceId::new("grass"),
-                amount: 1,
-            }
-        );
-        assert_eq!(
-            table.draw(&mut FixedRandom(50)),
-            RewardOutcome::Resource {
-                resource: ResourceId::new("pebble"),
-                amount: 1,
-            }
-        );
+        let expected = [
+            ("nearby_hill", "gather", [("grass", 100), ("pebble", 50)]),
+            (
+                "nearby_hill",
+                "hunt",
+                [("awful_meat", 100), ("small_fang", 60)],
+            ),
+            ("nearby_woods", "gather", [("vine", 60), ("twig", 100)]),
+            (
+                "nearby_woods",
+                "hunt",
+                [("awful_meat", 100), ("tiny_magic_stone", 10)],
+            ),
+            (
+                "first_shore",
+                "fish",
+                [("small_fish", 30), ("seaweed_fragment", 100)],
+            ),
+            (
+                "first_shore",
+                "gather",
+                [("seaweed_fragment", 60), ("pebble", 100)],
+            ),
+        ];
 
-        let fishing = catalog
-            .reward_table(&LocationId::new("first_shore"), &ActionId::new("fish"))
-            .unwrap();
-        assert!(matches!(
-            fishing.draw(&mut FixedRandom(9)),
-            RewardOutcome::Resource { .. }
-        ));
-        assert_eq!(fishing.draw(&mut FixedRandom(10)), RewardOutcome::Nothing);
+        for (location, action, entries) in expected {
+            let actual: Vec<(&str, u64, u32)> = catalog
+                .reward_table(&LocationId::new(location), &ActionId::new(action))
+                .unwrap()
+                .entries()
+                .map(|entry| (entry.resource.as_str(), entry.amount, entry.chance))
+                .collect();
+            assert_eq!(
+                actual,
+                entries
+                    .map(|(resource, chance)| (resource, 1, chance))
+                    .as_slice()
+            );
+        }
+    }
+
+    #[test]
+    fn reward_rolls_are_independent_and_preserve_success_order() {
+        let table = RewardTable::new("place", "act")
+            .with_resource("first", 1, 40)
+            .with_resource("certain", 2, 100)
+            .with_resource("last", 3, 60);
+        let mut random = SequenceRandom::new([40, 59]);
+
+        assert_eq!(
+            table.roll(&mut random),
+            [
+                Reward {
+                    resource: ResourceId::new("certain"),
+                    amount: 2,
+                },
+                Reward {
+                    resource: ResourceId::new("last"),
+                    amount: 3,
+                },
+            ]
+        );
+        assert_eq!(random.consumed, 2);
+    }
+
+    #[test]
+    fn reward_roll_can_return_empty() {
+        let table = RewardTable::new("place", "act")
+            .with_resource("first", 1, 40)
+            .with_resource("second", 1, 60);
+        assert!(table.roll(&mut SequenceRandom::new([40, 60])).is_empty());
+    }
+
+    #[test]
+    fn duplicate_resource_rewards_are_aggregated_at_first_success() {
+        let table = RewardTable::new("place", "act")
+            .with_resource("pebble", 1, 50)
+            .with_resource("grass", 1, 100)
+            .with_resource("pebble", 2, 100);
+
+        assert_eq!(
+            table.roll(&mut SequenceRandom::new([0])),
+            [
+                Reward {
+                    resource: ResourceId::new("pebble"),
+                    amount: 3,
+                },
+                Reward {
+                    resource: ResourceId::new("grass"),
+                    amount: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn certain_rewards_do_not_consume_randomness() {
+        let table = RewardTable::new("place", "act").with_resource("certain", 1, 100);
+        let mut random = SequenceRandom::new([]);
+
+        assert_eq!(table.roll(&mut random).len(), 1);
+        assert_eq!(random.consumed, 0);
     }
 }
