@@ -2,7 +2,7 @@
 
 - Status: Current
 - Date: 2026-06-21
-- Updated: 2026-09-01
+- Updated: 2026-09-06
 
 This document defines the terminal UI layout requirements for `IDLE BARQUEST`.
 It is written as an implementation-oriented reference for AI agents and developers.
@@ -256,11 +256,12 @@ This region behaves like a terminal log:
 
 The current implementation does not need scrollback or history navigation.
 
-Action completion and its exclusive reward result use one line so the three
-event rows available at `80x24` remain useful:
+Action completion and its ordered reward results use one line so the three
+event rows available at `80x24` remain useful. Separate multiple resources with
+a comma and space; show `Nothing` only when the reward list is empty:
 
 ```text
-Hero completed Gather at Nearby Hill: Pebble x1
+Hero completed Gather at Nearby Hill: Grass x1, Pebble x1
 Hero completed Fish at First Shore: Nothing
 ```
 
@@ -353,3 +354,4 @@ When implementing or modifying the UI, preserve these invariants:
 - [Decision 0013: Contextual action selection](../decisions/0013-contextual-action-selection.md)
 - [Decision 0014: Three-stage task assignment](../decisions/0014-three-stage-task-assignment.md)
 - [Decision 0015: Settlement and materials display](../decisions/0015-settlement-and-materials-display.md)
+- [Decision 0016: Independent multi-material rewards](../decisions/0016-independent-multi-material-rewards.md)

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-06-20
-- Updated: 2026-09-01 — the App/Input/materials/render split below is implemented; see
+- Updated: 2026-09-06 — the App/Input/materials/render split below is implemented; see
   [Decision 0010](../decisions/0010-tui-module-structure.md).
 
 ## Purpose
@@ -164,9 +164,9 @@ For example, a quest progress test should check:
   while the other Targets stay idle (no progress row).
 - After 5 seconds of game time, the renderer shows roughly `50%`.
 - After 10 seconds of game time, `advance` emits a reward-bearing
-  `QuestCompleted` event with Target, Location, Action, and Outcome, the task is
-  removed (its row disappears), the inventory reflects any awarded resource,
-  and a one-line completion result shows in the log.
+  `QuestCompleted` event with Target, Location, Action, and an ordered reward
+  list, the task is removed (its row disappears), the inventory reflects every
+  awarded resource, and a one-line completion result shows in the log.
 - Any other started Target's task keeps progressing.
 
 No part of this test should sleep for 10 real seconds.
@@ -298,3 +298,4 @@ real terminal tests for the small amount of code that truly needs a terminal.
 - [Decision 0013: Contextual action selection](../decisions/0013-contextual-action-selection.md)
 - [Decision 0014: Three-stage task assignment](../decisions/0014-three-stage-task-assignment.md)
 - [Decision 0015: Settlement and materials display](../decisions/0015-settlement-and-materials-display.md)
+- [Decision 0016: Independent multi-material rewards](../decisions/0016-independent-multi-material-rewards.md)
