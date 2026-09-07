@@ -3,3 +3,9 @@ prefix_rule(
     decision = "allow",
     justification = "Allow normal git commits with an explicit message",
 )
+
+prefix_rule(
+    pattern = ["git", "add"],
+    decision = "allow",
+    justification = "Allow staging files with git add",
+)
