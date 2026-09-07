@@ -70,16 +70,17 @@ was empty, causing crashes in production.
 
 ## Execution
 
-For each group, stage its files explicitly, then use a HEREDOC to pass the commit message to `git commit`:
+For each group, stage its files explicitly, then pass each commit-message
+paragraph directly with a separate `-m` option:
 
 ```bash
 git add <path1> <path2> ...
-git commit -m "$(cat <<'EOF'
-<type>[optional scope]: <description>
-
-[optional body]
-EOF
-)"
+git commit -m "<type>[optional scope]: <description>" -m "<optional body>"
 ```
+
+Do not use shell substitution such as `$(...)`, a heredoc, or a here-string when
+running `git commit`. For a subject-only message, use one `-m`; for a message
+with multiple paragraphs, use one `-m` per paragraph. This keeps the invocation
+compatible with the repository's permission rule for `git commit -m`.
 
 Repeat for every group. After the last commit, show the result of `git log --oneline -N` (N = number of commits created) to confirm all commits were created successfully.
