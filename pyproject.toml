@@ -1,0 +1,19 @@
+[project]
+name = "idle-barquest"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Mitsuhito Fujita", email = "github@mitsuhito.dev" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+idle-barquest = "idle_barquest:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
