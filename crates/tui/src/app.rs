@@ -1,7 +1,7 @@
 //! Testable front-end state and behavior for the progressive choices flow.
 
 use barquest_core::{
-    Catalog, GameEvent, GameState, LocationId, ResourceId, SeededRandom, TargetId,
+    ActionId, Catalog, GameEvent, GameState, LocationId, ResourceId, SeededRandom, TargetId,
 };
 
 use crate::input::Input;
@@ -9,8 +9,9 @@ use crate::materials;
 
 pub(crate) const TICKS_PER_FRAME: u64 = 100;
 const LOG_CAPACITY: usize = 200;
+pub(crate) const INVENTORY_PREFIX_WIDTH: u16 = 12;
 
-/// The current stage of `Target -> Location -> Action` selection.
+/// The current stage of `Target -> Location -> Action -> Recipe` selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum Menu {
@@ -21,6 +22,11 @@ pub(crate) enum Menu {
     SelectAction {
         target: TargetId,
         location: LocationId,
+    },
+    SelectRecipe {
+        target: TargetId,
+        location: LocationId,
+        action: ActionId,
     },
 }
 
@@ -65,7 +71,7 @@ impl App {
             &self.catalog,
             &self.state,
             self.material_start.as_ref(),
-            width,
+            width.saturating_sub(INVENTORY_PREFIX_WIDTH),
         );
         let destination = if forward {
             viewport.next_start
@@ -111,10 +117,43 @@ impl App {
                     .available_actions(&self.catalog, &target, &location)
                     .nth(index)
                     .cloned();
-                if let Some(action) = action
-                    && self
+                if let Some(action) = action {
+                    if self
+                        .state
+                        .available_recipes(&self.catalog, &location, &action)
+                        .next()
+                        .is_some()
+                    {
+                        self.menu = Menu::SelectRecipe {
+                            target,
+                            location,
+                            action,
+                        };
+                    } else if self
                         .state
                         .assign_action(&self.catalog, &target, &location, &action)
+                    {
+                        self.menu = Menu::SelectTarget;
+                    }
+                }
+            }
+            Menu::SelectRecipe {
+                target,
+                location,
+                action,
+            } => {
+                let target = target.clone();
+                let location = location.clone();
+                let action = action.clone();
+                let recipe = self
+                    .state
+                    .available_recipes(&self.catalog, &location, &action)
+                    .nth(index)
+                    .map(|recipe| recipe.id.clone());
+                if let Some(recipe) = recipe
+                    && self
+                        .state
+                        .assign_recipe(&self.catalog, &target, &location, &action, &recipe)
                 {
                     self.menu = Menu::SelectTarget;
                 }
@@ -128,6 +167,12 @@ impl App {
             Menu::SelectLocation { .. } => Menu::SelectTarget,
             Menu::SelectAction { target, .. } => Menu::SelectLocation {
                 target: target.clone(),
+            },
+            Menu::SelectRecipe {
+                target, location, ..
+            } => Menu::SelectAction {
+                target: target.clone(),
+                location: location.clone(),
             },
         };
     }
@@ -172,6 +217,22 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
             };
             format!("{target} completed {action} at {location}: {rewards}")
         }
+        GameEvent::CraftCompleted {
+            target,
+            location,
+            recipe,
+        } => {
+            let target = catalog
+                .target(target)
+                .map_or("?", |value| value.label.as_str());
+            let location = catalog
+                .location(location)
+                .map_or("?", |value| value.label.as_str());
+            let recipe = catalog
+                .recipe(recipe)
+                .map_or("?", |value| value.label.as_str());
+            format!("{target} crafted {recipe} at {location}")
+        }
     };
     log.push(line);
     if log.len() > LOG_CAPACITY {
@@ -182,7 +243,7 @@ fn push_event(log: &mut Vec<String>, catalog: &Catalog, event: &GameEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use barquest_core::{ActionId, ResourceId, ResourceStack, Reward, seconds_to_ticks};
+    use barquest_core::{ActionId, RecipeId, ResourceId, ResourceStack, Reward, seconds_to_ticks};
 
     fn acquire_all_materials(app: &mut App) {
         app.state.inventory = app
@@ -226,8 +287,19 @@ mod tests {
         let mut app = App::new(0);
         app.update(Input::Back, 80);
         assert_eq!(app.menu, Menu::SelectTarget);
+
         app.update(Input::Select(0), 80);
+        app.update(Input::Select(3), 80);
         app.update(Input::Select(0), 80);
+        assert!(matches!(app.menu, Menu::SelectRecipe { .. }));
+        app.update(Input::Back, 80);
+        assert_eq!(
+            app.menu,
+            Menu::SelectAction {
+                target: TargetId::new("hero"),
+                location: LocationId::new("base"),
+            }
+        );
         app.update(Input::Back, 80);
         assert_eq!(
             app.menu,
@@ -293,6 +365,63 @@ mod tests {
             location: LocationId::new("first_shore"),
         };
         assert!(app.update(Input::Quit, 80));
+        app.menu = Menu::SelectRecipe {
+            target: TargetId::new("hero"),
+            location: LocationId::new("base"),
+            action: ActionId::new("craft"),
+        };
+        assert!(app.update(Input::Quit, 80));
+    }
+
+    #[test]
+    fn craft_selection_keeps_disabled_recipe_visible_then_starts_when_affordable() {
+        let mut app = App::new(0);
+        app.update(Input::Select(0), 80);
+        app.update(Input::Select(3), 80);
+        app.update(Input::Select(0), 80);
+        assert_eq!(
+            app.menu,
+            Menu::SelectRecipe {
+                target: TargetId::new("hero"),
+                location: LocationId::new("base"),
+                action: ActionId::new("craft"),
+            }
+        );
+
+        app.update(Input::Select(0), 80);
+        assert!(matches!(app.menu, Menu::SelectRecipe { .. }));
+        app.state.inventory.push(ResourceStack {
+            resource: ResourceId::new("pebble"),
+            amount: 20,
+        });
+        app.update(Input::Select(0), 80);
+
+        assert_eq!(app.menu, Menu::SelectTarget);
+        assert_eq!(app.state.resource_count(&ResourceId::new("pebble")), 0);
+        let quest = app.state.targets[0].quest.as_ref().unwrap();
+        assert_eq!(quest.recipe, Some(RecipeId::new("stone_table")));
+        assert_eq!(quest.progress.goal(), seconds_to_ticks(20));
+    }
+
+    #[test]
+    fn craft_completion_is_logged_and_builds_the_facility() {
+        let mut app = App::new(0);
+        app.state.inventory.push(ResourceStack {
+            resource: ResourceId::new("pebble"),
+            amount: 20,
+        });
+        assert!(app.state.assign_recipe(
+            &app.catalog,
+            &TargetId::new("hero"),
+            &LocationId::new("base"),
+            &ActionId::new("craft"),
+            &RecipeId::new("stone_table"),
+        ));
+
+        app.advance(seconds_to_ticks(20));
+
+        assert_eq!(app.log, ["Hero crafted Stone Table at Base"]);
+        assert!(app.state.has_facility(&RecipeId::new("stone_table")));
     }
 
     #[test]

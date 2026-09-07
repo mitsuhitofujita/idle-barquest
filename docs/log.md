@@ -113,3 +113,13 @@
   fixed Settlement and Materials rows without increasing the `80x24` minimum.
 - Displayed acquired resources in catalog order through a width-aware viewport
   that can be navigated globally.
+
+## Base crafting (2026-09-07)
+
+- Added Base -> Craft -> Recipe selection with four twenty-second recipes,
+  start-time ingredient consumption, prerequisite checks, and disabled reasons.
+- Added permanent unique facilities and a repeatable Primitive Fishing Rod item;
+  completed facilities appear beside Settlement and materials/items share the
+  renamed Inventory display.
+- Kept recipes as catalog content so crafting rules remain terminal-independent
+  and existing gathering tasks keep their reward behavior.

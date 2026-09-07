@@ -3,7 +3,7 @@
 idle-barquest is a Rust 1.96 Cargo workspace with three crates:
 
 - `barquest-core` contains terminal-independent content, state, time, reward,
-  and simulation logic.
+  crafting, and simulation logic.
 - `barquest-tui` is the `barquest` executable. It owns terminal lifecycle,
   wall-clock pacing, input behavior, and rendering.
 - `barquest-tools` contains headless binaries that consume the same core API.
@@ -18,7 +18,8 @@ from the crate root.
 Core models time as ticks, with 1,000 ticks per second. Callers advance a
 `GameState` explicitly and supply a `RandomSource`, so simulation contains no
 clock or terminal access. An advance updates every active task, applies rewards
-for completed tasks, frees their targets, and returns `GameEvent` values.
+or crafting outputs for completed tasks, frees their targets, and returns
+`GameEvent` values.
 
 The TUI redraws and advances the world by 100 ticks on a 100 ms wall-clock frame.
 It seeds core's deterministic random generator from system time. Input may cause

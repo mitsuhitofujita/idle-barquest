@@ -1,7 +1,7 @@
 //! Stable string ids that join the [`Catalog`](crate::Catalog) (content) to the
 //! [`GameState`](crate::GameState) (live world).
 //!
-//! Targets, settlements, locations, actions, and resources reference templates by id rather
+//! Targets, settlements, locations, actions, recipes, and resources reference templates by id rather
 //! than by borrow, so the state owns no borrows, stays cheaply `Clone`, and is
 //! trivially serialisable later.
 
@@ -114,6 +114,34 @@ impl From<&str> for ActionId {
 }
 
 impl From<String> for ActionId {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+/// Stable string id for a crafting recipe, e.g. `"stone_table"`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RecipeId(pub String);
+
+impl RecipeId {
+    /// Builds an id from anything string-like.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    /// Borrows the id as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for RecipeId {
+    fn from(value: &str) -> Self {
+        Self(value.to_owned())
+    }
+}
+
+impl From<String> for RecipeId {
     fn from(value: String) -> Self {
         Self(value)
     }

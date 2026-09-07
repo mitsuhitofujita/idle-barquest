@@ -11,7 +11,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::widgets::Paragraph;
 
-use crate::app::App;
+use crate::app::{App, INVENTORY_PREFIX_WIDTH};
 use crate::materials;
 
 mod choices;
@@ -105,7 +105,24 @@ fn render_settlement(frame: &mut Frame, area: Rect, app: &App) {
         .catalog
         .settlement(&app.state.current_settlement)
         .map_or("?", |settlement| settlement.label.as_str());
-    frame.render_widget(Paragraph::new(format!(" Settlement: {label}")), area);
+    let facilities = if app.state.built_facilities.is_empty() {
+        "None".to_string()
+    } else {
+        app.state
+            .built_facilities
+            .iter()
+            .map(|facility| {
+                app.catalog
+                    .recipe(facility)
+                    .map_or("?", |recipe| recipe.label.as_str())
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    frame.render_widget(
+        Paragraph::new(format!(" Settlement: {label} | Facilities: {facilities}")),
+        area,
+    );
 }
 
 /// Draws acquired resources using the same width calculation as navigation.
@@ -114,15 +131,18 @@ fn render_materials(frame: &mut Frame, area: Rect, app: &App) {
         &app.catalog,
         &app.state,
         app.material_start.as_ref(),
-        area.width,
+        area.width.saturating_sub(INVENTORY_PREFIX_WIDTH),
     );
-    frame.render_widget(Paragraph::new(viewport.line), area);
+    frame.render_widget(
+        Paragraph::new(format!(" Inventory: {}", viewport.line)),
+        area,
+    );
 }
 
 /// Draws the always-visible global menu: commands valid from any UI state.
 fn render_menu(frame: &mut Frame, area: Rect) {
     frame.render_widget(
-        Paragraph::new(" ,) Previous Materials  .) Next Materials  BACKSPACE) Back  ESC) Quit"),
+        Paragraph::new(" ,) Previous Inventory  .) Next Inventory  BACKSPACE) Back  ESC) Quit"),
         area,
     );
 }
@@ -201,7 +221,7 @@ mod tests {
     use super::*;
     use crate::app::{App, Menu};
     use barquest_core::{
-        ActionId, LocationId, ResourceId, ResourceStack, TargetId, seconds_to_ticks,
+        ActionId, LocationId, RecipeId, ResourceId, ResourceStack, TargetId, seconds_to_ticks,
     };
 
     /// Renders at `w x h` and returns one full-width string per terminal row.
@@ -389,12 +409,15 @@ mod tests {
             "log separator should follow the four-row minimum log region"
         );
         assert!(rows[3].trim().is_empty(), "first log row should be blank");
-        assert_eq!(rows[8].trim(), "Settlement: Awakening Shore");
+        assert_eq!(
+            rows[8].trim(),
+            "Settlement: Awakening Shore | Facilities: None"
+        );
         assert!(rows[15].contains("+----+"), "choices separator moved");
-        assert!(rows[21].trim().is_empty(), "materials should start empty");
+        assert_eq!(rows[21].trim(), "Inventory:");
         assert!(rows[22].contains("+----+"), "progress separator moved");
-        assert!(screen.contains(",) Previous Materials"));
-        assert!(screen.contains(".) Next Materials"));
+        assert!(screen.contains(",) Previous Inventory"));
+        assert!(screen.contains(".) Next Inventory"));
         assert!(screen.contains("BACKSPACE) Back"));
         assert!(screen.contains("ESC) Quit"), "missing global menu");
         assert!(screen.contains("+----+"), "missing separators");
@@ -410,9 +433,12 @@ mod tests {
         assert!(rows[3].trim().is_empty(), "title gap must remain one row");
         assert_eq!(rows[11].trim(), "latest event");
         assert!(rows[12].contains("+----+"), "log should receive five rows");
-        assert_eq!(rows[13].trim(), "Settlement: Awakening Shore");
+        assert_eq!(
+            rows[13].trim(),
+            "Settlement: Awakening Shore | Facilities: None"
+        );
         assert!(rows[20].contains("+----+"), "choices must stay six rows");
-        assert!(rows[26].trim().is_empty(), "materials row moved");
+        assert_eq!(rows[26].trim(), "Inventory:");
         assert!(rows[27].contains("+----+"), "progress must stay five rows");
         assert!(rows[28].contains("ESC) Quit"), "menu must remain last");
     }
@@ -439,6 +465,42 @@ mod tests {
 
         assert!(rows[21].contains("Pebble: 34 | Twig: 10 | Vine: 0"));
         assert!(!rows[21].contains("Grass"));
+    }
+
+    #[test]
+    fn recipe_menu_shows_unmet_conditions_and_four_selection_stages() {
+        let mut app = App::new(0);
+        app.menu = Menu::SelectRecipe {
+            target: TargetId::new("hero"),
+            location: LocationId::new("base"),
+            action: ActionId::new("craft"),
+        };
+
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+        let choices = rows[9..15].join("\n");
+        assert!(choices.contains("> Recipe:"));
+        assert!(choices.contains("needs Pebble 0/20: Stone Table"));
+        assert!(choices.contains("needs Stone Table: Primitive"));
+        assert!(
+            rows[9..15]
+                .iter()
+                .all(|row| row.chars().filter(|&cell| cell == '|').count() == 4)
+        );
+    }
+
+    #[test]
+    fn settlement_and_inventory_show_completed_craft_outputs() {
+        let mut app = App::new(0);
+        app.state.built_facilities = vec![RecipeId::new("stone_table")];
+        app.state.inventory.push(ResourceStack {
+            resource: ResourceId::new("primitive_fishing_rod"),
+            amount: 2,
+        });
+
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+        assert!(rows[8].contains("Facilities: Stone Table"));
+        assert!(rows[21].contains("Inventory:"));
+        assert!(rows[21].contains("Primitive Fishing Rod: 2"));
     }
 
     #[test]

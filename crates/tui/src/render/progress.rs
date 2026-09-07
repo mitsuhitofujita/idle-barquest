@@ -32,9 +32,16 @@ fn progress_rows(catalog: &Catalog, state: &GameState, width: u16) -> Vec<String
             let location_label = catalog
                 .location(&quest.location)
                 .map_or("?", |template| template.label.as_str());
-            let action_label = catalog
-                .action(&quest.action)
-                .map_or("?", |template| template.label.as_str());
+            let action_label = quest
+                .recipe
+                .as_ref()
+                .and_then(|recipe| catalog.recipe(recipe))
+                .map(|recipe| recipe.label.as_str())
+                .unwrap_or_else(|| {
+                    catalog
+                        .action(&quest.action)
+                        .map_or("?", |template| template.label.as_str())
+                });
             [
                 column(target_label, cols[0]),
                 column(location_label, cols[1]),
@@ -84,7 +91,10 @@ fn progress_bar(ratio: f64, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use barquest_core::{ActionId, LocationId, SeededRandom, TargetId, seconds_to_ticks};
+    use barquest_core::{
+        ActionId, LocationId, RecipeId, ResourceId, ResourceStack, SeededRandom, TargetId,
+        seconds_to_ticks,
+    };
 
     #[test]
     fn progress_bar_has_expected_endpoints_and_midpoint() {
@@ -116,6 +126,28 @@ mod tests {
         assert!(rows[0].contains("Hero"));
         assert!(rows[0].contains("Nearby Woods"));
         assert!(rows[0].contains("Hunt"));
+        assert!(rows[0].contains("50%"));
+    }
+
+    #[test]
+    fn crafting_progress_uses_the_recipe_name_and_duration() {
+        let catalog = Catalog::builtin();
+        let mut state = GameState::seeded(&catalog);
+        state.inventory.push(ResourceStack {
+            resource: ResourceId::new("pebble"),
+            amount: 20,
+        });
+        assert!(state.assign_recipe(
+            &catalog,
+            &TargetId::new("hero"),
+            &LocationId::new("base"),
+            &ActionId::new("craft"),
+            &RecipeId::new("stone_table"),
+        ));
+        state.advance(&catalog, seconds_to_ticks(10), &mut SeededRandom::new(0));
+
+        let rows = progress_rows(&catalog, &state, 80);
+        assert!(rows[0].contains("Stone Table"));
         assert!(rows[0].contains("50%"));
     }
 

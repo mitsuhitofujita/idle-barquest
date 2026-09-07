@@ -1,7 +1,7 @@
 //! Live, serializable-friendly game state and deterministic task progression.
 
-use crate::catalog::{Catalog, Reward};
-use crate::id::{ActionId, LocationId, ResourceId, SettlementId, TargetId};
+use crate::catalog::{Catalog, RecipeOutput, RecipeTemplate, Reward};
+use crate::id::{ActionId, LocationId, RecipeId, ResourceId, SettlementId, TargetId};
 use crate::random::RandomSource;
 use crate::time::Progress;
 
@@ -12,6 +12,8 @@ pub struct Quest {
     pub location: LocationId,
     /// Which action is running.
     pub action: ActionId,
+    /// Recipe being crafted, or `None` for an ordinary location action.
+    pub recipe: Option<RecipeId>,
     /// How far the action has progressed.
     pub progress: Progress,
 }
@@ -29,6 +31,15 @@ pub enum GameEvent {
         action: ActionId,
         /// Ordered, aggregated resources awarded by the matching reward table.
         rewards: Vec<Reward>,
+    },
+    /// A target completed a crafting recipe and was freed.
+    CraftCompleted {
+        /// Instance that performed the craft.
+        target: TargetId,
+        /// Location where crafting took place.
+        location: LocationId,
+        /// Recipe that completed.
+        recipe: RecipeId,
     },
 }
 
@@ -63,8 +74,10 @@ pub struct GameState {
     pub unlocked_locations: Vec<LocationId>,
     /// Unlocked actions, in menu order.
     pub unlocked_actions: Vec<ActionId>,
-    /// Resources earned during this game, in first-acquisition order.
+    /// Materials and stackable items held, in first-acquisition order.
     pub inventory: Vec<ResourceStack>,
+    /// Permanent facilities completed at the current settlement.
+    pub built_facilities: Vec<RecipeId>,
 }
 
 impl GameState {
@@ -76,6 +89,7 @@ impl GameState {
             unlocked_locations: Vec::new(),
             unlocked_actions: Vec::new(),
             inventory: Vec::new(),
+            built_facilities: Vec::new(),
         }
     }
 
@@ -106,6 +120,7 @@ impl GameState {
             unlocked_locations,
             unlocked_actions,
             inventory: Vec::new(),
+            built_facilities: Vec::new(),
         }
     }
 
@@ -176,6 +191,68 @@ impl GameState {
         })
     }
 
+    /// Iterates recipes for one Location and Action, omitting facilities that
+    /// are already built or currently under construction.
+    pub fn available_recipes<'a>(
+        &'a self,
+        catalog: &'a Catalog,
+        location: &'a LocationId,
+        action: &'a ActionId,
+    ) -> impl Iterator<Item = &'a RecipeTemplate> {
+        catalog.recipes().filter(move |recipe| {
+            &recipe.location == location
+                && &recipe.action == action
+                && (!matches!(recipe.output, RecipeOutput::Facility)
+                    || (!self.has_facility(&recipe.id)
+                        && !self.facility_is_in_progress(&recipe.id)))
+        })
+    }
+
+    /// Whether a recipe can start now, including target, compatibility,
+    /// facility, and material checks.
+    pub fn can_craft_recipe(
+        &self,
+        catalog: &Catalog,
+        instance: &TargetId,
+        location: &LocationId,
+        action: &ActionId,
+        recipe: &RecipeId,
+    ) -> bool {
+        let Some(target) = self.targets.iter().find(|target| &target.id == instance) else {
+            return false;
+        };
+        let Some(target_template) = catalog.target(&target.template_id) else {
+            return false;
+        };
+        let Some(location_template) = catalog.location(location) else {
+            return false;
+        };
+        let Some(recipe_template) = catalog.recipe(recipe) else {
+            return false;
+        };
+        if target.quest.is_some()
+            || !self.unlocked_locations.contains(location)
+            || !self.unlocked_actions.contains(action)
+            || !target_template.supports(action)
+            || !location_template.supports(action)
+            || &recipe_template.location != location
+            || &recipe_template.action != action
+            || !valid_recipe(catalog, recipe_template)
+            || recipe_template
+                .required_facilities
+                .iter()
+                .any(|facility| !self.has_facility(facility))
+            || recipe_template
+                .ingredients
+                .iter()
+                .any(|ingredient| self.resource_count(&ingredient.resource) < ingredient.amount)
+        {
+            return false;
+        }
+        !matches!(recipe_template.output, RecipeOutput::Facility)
+            || (!self.has_facility(recipe) && !self.facility_is_in_progress(recipe))
+    }
+
     /// Assigns a new task when every id and compatibility constraint is valid.
     ///
     /// A busy target rejects all assignments; tasks cannot be restarted or replaced.
@@ -216,13 +293,49 @@ impl GameState {
         target.quest = Some(Quest {
             location: location.clone(),
             action: action.clone(),
+            recipe: None,
             progress: Progress::new(action_template.goal_ticks),
         });
         true
     }
 
-    /// Advances every active task, draws rewards, emits completions, and frees
-    /// finished targets.
+    /// Starts one craft and consumes all ingredients immediately.
+    pub fn assign_recipe(
+        &mut self,
+        catalog: &Catalog,
+        instance: &TargetId,
+        location: &LocationId,
+        action: &ActionId,
+        recipe: &RecipeId,
+    ) -> bool {
+        if !self.can_craft_recipe(catalog, instance, location, action, recipe) {
+            return false;
+        }
+        let recipe_template = catalog.recipe(recipe).expect("validated recipe exists");
+        for ingredient in &recipe_template.ingredients {
+            let stack = self
+                .inventory
+                .iter_mut()
+                .find(|stack| stack.resource == ingredient.resource)
+                .expect("validated ingredient stack exists");
+            stack.amount -= ingredient.amount;
+        }
+        let target = self
+            .targets
+            .iter_mut()
+            .find(|target| &target.id == instance)
+            .expect("validated target exists");
+        target.quest = Some(Quest {
+            location: location.clone(),
+            action: action.clone(),
+            recipe: Some(recipe.clone()),
+            progress: Progress::new(recipe_template.goal_ticks),
+        });
+        true
+    }
+
+    /// Advances every active task, applies its reward or craft output, emits a
+    /// completion, and frees the finished target.
     pub fn advance(
         &mut self,
         catalog: &Catalog,
@@ -230,7 +343,11 @@ impl GameState {
         random: &mut impl RandomSource,
     ) -> Vec<GameEvent> {
         let mut events = Vec::new();
-        let (targets, inventory) = (&mut self.targets, &mut self.inventory);
+        let (targets, inventory, built_facilities) = (
+            &mut self.targets,
+            &mut self.inventory,
+            &mut self.built_facilities,
+        );
         for target in targets {
             let completed = target.quest.as_mut().is_some_and(|quest| {
                 quest.progress.advance(ticks);
@@ -238,6 +355,23 @@ impl GameState {
             });
             if completed {
                 let quest = target.quest.take().expect("completed task exists");
+                if let Some(recipe_id) = quest.recipe {
+                    let recipe = catalog
+                        .recipe(&recipe_id)
+                        .expect("assigned craft has a recipe");
+                    match &recipe.output {
+                        RecipeOutput::Facility => built_facilities.push(recipe_id.clone()),
+                        RecipeOutput::Item { resource, amount } => {
+                            add_resource(inventory, resource, *amount);
+                        }
+                    }
+                    events.push(GameEvent::CraftCompleted {
+                        target: target.id.clone(),
+                        location: quest.location,
+                        recipe: recipe_id,
+                    });
+                    continue;
+                }
                 let rewards = catalog
                     .reward_table(&quest.location, &quest.action)
                     .expect("assigned task has a reward table")
@@ -271,6 +405,11 @@ impl GameState {
             .map_or(0, |stack| stack.amount)
     }
 
+    /// Whether one permanent facility has been completed.
+    pub fn has_facility(&self, facility: &RecipeId) -> bool {
+        self.built_facilities.contains(facility)
+    }
+
     /// Iterates acquired, known resources in Catalog registration order.
     ///
     /// Stack presence records acquisition independently of quantity, so a
@@ -300,6 +439,16 @@ impl GameState {
             n += 1;
         }
     }
+
+    fn facility_is_in_progress(&self, facility: &RecipeId) -> bool {
+        self.targets.iter().any(|target| {
+            target
+                .quest
+                .as_ref()
+                .and_then(|quest| quest.recipe.as_ref())
+                == Some(facility)
+        })
+    }
 }
 
 fn valid_reward_table(catalog: &Catalog, location: &LocationId, action: &ActionId) -> bool {
@@ -311,6 +460,38 @@ fn valid_reward_table(catalog: &Catalog, location: &LocationId, action: &ActionI
                     && catalog.resource(&entry.resource).is_some()
             })
     })
+}
+
+fn valid_recipe(catalog: &Catalog, recipe: &RecipeTemplate) -> bool {
+    let ingredients_are_valid = !recipe.ingredients.is_empty()
+        && recipe
+            .ingredients
+            .iter()
+            .enumerate()
+            .all(|(index, ingredient)| {
+                ingredient.amount > 0
+                    && catalog.resource(&ingredient.resource).is_some()
+                    && !recipe.ingredients[..index]
+                        .iter()
+                        .any(|earlier| earlier.resource == ingredient.resource)
+            });
+    let facilities_are_valid = recipe.required_facilities.iter().all(|facility| {
+        catalog
+            .recipe(facility)
+            .is_some_and(|required| matches!(required.output, RecipeOutput::Facility))
+    });
+    let output_is_valid = match &recipe.output {
+        RecipeOutput::Facility => true,
+        RecipeOutput::Item { resource, amount } => {
+            *amount > 0 && catalog.resource(resource).is_some()
+        }
+    };
+    recipe.goal_ticks > 0
+        && catalog.location(&recipe.location).is_some()
+        && catalog.action(&recipe.action).is_some()
+        && ingredients_are_valid
+        && facilities_are_valid
+        && output_is_valid
 }
 
 fn add_resource(inventory: &mut Vec<ResourceStack>, resource: &ResourceId, amount: u64) {
@@ -370,13 +551,14 @@ mod tests {
         assert!(state.targets[0].quest.is_none());
         assert_eq!(
             state.unlocked_locations,
-            ["first_shore", "nearby_woods", "nearby_hill"].map(LocationId::new)
+            ["first_shore", "nearby_woods", "nearby_hill", "base"].map(LocationId::new)
         );
         assert_eq!(
             state.unlocked_actions,
-            ["gather", "fish", "hunt"].map(ActionId::new)
+            ["gather", "fish", "hunt", "craft"].map(ActionId::new)
         );
         assert!(state.inventory.is_empty());
+        assert!(state.built_facilities.is_empty());
     }
 
     #[test]
@@ -522,6 +704,112 @@ mod tests {
             2
         );
         assert_eq!(state.inventory.len(), 2);
+    }
+
+    #[test]
+    fn crafting_consumes_materials_at_start_and_builds_a_unique_facility() {
+        let catalog = Catalog::builtin();
+        let mut state = GameState::seeded(&catalog);
+        let hero = TargetId::new("hero");
+        let base = LocationId::new("base");
+        let craft = ActionId::new("craft");
+        let table = RecipeId::new("stone_table");
+        add_resource(&mut state.inventory, &ResourceId::new("pebble"), 20);
+
+        assert!(state.can_craft_recipe(&catalog, &hero, &base, &craft, &table));
+        assert!(state.assign_recipe(&catalog, &hero, &base, &craft, &table));
+        assert_eq!(state.resource_count(&ResourceId::new("pebble")), 0);
+        assert!(!state.has_facility(&table));
+        assert!(
+            state
+                .available_recipes(&catalog, &base, &craft)
+                .all(|recipe| recipe.id != table),
+            "a unique facility should disappear while being built"
+        );
+
+        let mut random = FixedRandom(0);
+        assert!(
+            state
+                .advance(&catalog, seconds_to_ticks(19), &mut random)
+                .is_empty()
+        );
+        assert_eq!(
+            state.advance(&catalog, seconds_to_ticks(1), &mut random),
+            [GameEvent::CraftCompleted {
+                target: hero.clone(),
+                location: base.clone(),
+                recipe: table.clone(),
+            }]
+        );
+        assert!(state.has_facility(&table));
+        assert!(!state.can_craft_recipe(&catalog, &hero, &base, &craft, &table));
+    }
+
+    #[test]
+    fn unavailable_craft_does_not_consume_any_materials() {
+        let catalog = Catalog::builtin();
+        let mut state = GameState::seeded(&catalog);
+        add_resource(&mut state.inventory, &ResourceId::new("twig"), 50);
+        add_resource(&mut state.inventory, &ResourceId::new("pebble"), 49);
+        add_resource(&mut state.inventory, &ResourceId::new("grass"), 50);
+
+        assert!(!state.assign_recipe(
+            &catalog,
+            &TargetId::new("hero"),
+            &LocationId::new("base"),
+            &ActionId::new("craft"),
+            &RecipeId::new("crude_bed"),
+        ));
+        assert_eq!(state.resource_count(&ResourceId::new("twig")), 50);
+        assert_eq!(state.resource_count(&ResourceId::new("pebble")), 49);
+        assert_eq!(state.resource_count(&ResourceId::new("grass")), 50);
+        assert!(state.targets[0].quest.is_none());
+    }
+
+    #[test]
+    fn fishing_rod_requires_the_table_and_remains_repeatable() {
+        let catalog = Catalog::builtin();
+        let mut state = GameState::seeded(&catalog);
+        let hero = TargetId::new("hero");
+        let base = LocationId::new("base");
+        let craft = ActionId::new("craft");
+        let rod = RecipeId::new("primitive_fishing_rod");
+        for (resource, amount) in [("twig", 10), ("vine", 10), ("small_fang", 6)] {
+            add_resource(&mut state.inventory, &ResourceId::new(resource), amount);
+        }
+
+        assert!(!state.can_craft_recipe(&catalog, &hero, &base, &craft, &rod));
+        state.built_facilities.push(RecipeId::new("stone_table"));
+        let mut random = FixedRandom(0);
+        for expected in 1..=2 {
+            assert!(state.assign_recipe(&catalog, &hero, &base, &craft, &rod));
+            state.advance(&catalog, seconds_to_ticks(20), &mut random);
+            assert_eq!(
+                state.resource_count(&ResourceId::new("primitive_fishing_rod")),
+                expected
+            );
+            assert!(
+                state
+                    .available_recipes(&catalog, &base, &craft)
+                    .any(|recipe| recipe.id == rod)
+            );
+        }
+    }
+
+    #[test]
+    fn facility_cannot_be_started_by_two_targets() {
+        let catalog = Catalog::builtin();
+        let mut state = GameState::seeded(&catalog);
+        let first = TargetId::new("hero");
+        let second = state.spawn_target(&catalog, &first).unwrap();
+        let base = LocationId::new("base");
+        let craft = ActionId::new("craft");
+        let table = RecipeId::new("stone_table");
+        add_resource(&mut state.inventory, &ResourceId::new("pebble"), 40);
+
+        assert!(state.assign_recipe(&catalog, &first, &base, &craft, &table));
+        assert!(!state.assign_recipe(&catalog, &second, &base, &craft, &table));
+        assert_eq!(state.resource_count(&ResourceId::new("pebble")), 20);
     }
 
     #[test]

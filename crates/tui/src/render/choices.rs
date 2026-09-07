@@ -1,6 +1,6 @@
-//! Progressive `Target -> Location -> Action` choices rendering.
+//! Progressive `Target -> Location -> Action -> Recipe` choices rendering.
 
-use barquest_core::{Catalog, GameState, LocationId, TargetId};
+use barquest_core::{ActionId, Catalog, GameState, LocationId, RecipeTemplate, TargetId};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::widgets::Paragraph;
@@ -16,10 +16,15 @@ pub(super) fn render_choices(
     menu: &Menu,
 ) {
     let height = area.height as usize;
-    let (chosen_target, chosen_location) = match menu {
-        Menu::SelectTarget => (None, None),
-        Menu::SelectLocation { target } => (Some(target), None),
-        Menu::SelectAction { target, location } => (Some(target), Some(location)),
+    let (chosen_target, chosen_location, chosen_action) = match menu {
+        Menu::SelectTarget => (None, None, None),
+        Menu::SelectLocation { target } => (Some(target), None, None),
+        Menu::SelectAction { target, location } => (Some(target), Some(location), None),
+        Menu::SelectRecipe {
+            target,
+            location,
+            action,
+        } => (Some(target), Some(location), Some(action)),
     };
 
     let target_active = matches!(menu, Menu::SelectTarget);
@@ -63,7 +68,8 @@ pub(super) fn render_choices(
 
     let mut actions = Vec::new();
     if let (Some(target), Some(location)) = (chosen_target, chosen_location) {
-        actions.push(header("Action:", true));
+        let action_active = matches!(menu, Menu::SelectAction { .. });
+        actions.push(header("Action:", action_active));
         for (index, id) in state
             .available_actions(catalog, target, location)
             .enumerate()
@@ -71,7 +77,45 @@ pub(super) fn render_choices(
             let label = catalog
                 .action(id)
                 .map_or("?", |action| action.label.as_str());
-            actions.push(format!(" {}) {label}", choice_key(index)));
+            let key = if action_active {
+                format!("{})", choice_key(index))
+            } else {
+                "  ".to_string()
+            };
+            actions.push(format!(" {key} {label}"));
+        }
+    }
+    let action_row = match (chosen_target, chosen_location, chosen_action) {
+        (Some(target), Some(location), Some(action)) => {
+            action_row(state, catalog, target, location, action)
+        }
+        _ => None,
+    };
+
+    let mut recipes = Vec::new();
+    if let Menu::SelectRecipe {
+        target,
+        location,
+        action,
+    } = menu
+    {
+        recipes.push(header("Recipe:", true));
+        for (index, recipe) in state
+            .available_recipes(catalog, location, action)
+            .enumerate()
+        {
+            let craftable = state.can_craft_recipe(catalog, target, location, action, &recipe.id);
+            let key = if craftable {
+                format!("{})", choice_key(index))
+            } else {
+                "- ".to_string()
+            };
+            let reason = recipe_unavailable_reason(catalog, state, recipe);
+            recipes.push(if reason.is_empty() {
+                format!(" {key} {}", recipe.label)
+            } else {
+                format!(" {key} {reason}: {}", recipe.label)
+            });
         }
     }
 
@@ -85,7 +129,7 @@ pub(super) fn render_choices(
             &locations,
             target_row,
         )
-    } else {
+    } else if chosen_action.is_none() {
         three_columns(
             height,
             area.width as usize,
@@ -95,9 +139,60 @@ pub(super) fn render_choices(
             target_row,
             location_row,
         )
+    } else {
+        four_columns(
+            height,
+            area.width as usize,
+            &targets,
+            &locations,
+            &actions,
+            &recipes,
+            target_row,
+            location_row,
+            action_row,
+        )
     };
 
     frame.render_widget(Paragraph::new(rows.join("\n")), area);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn four_columns(
+    height: usize,
+    width: usize,
+    first: &[String],
+    second: &[String],
+    third: &[String],
+    fourth: &[String],
+    selected_first: Option<usize>,
+    selected_second: Option<usize>,
+    selected_third: Option<usize>,
+) -> Vec<String> {
+    let [first_width, second_width, third_width, fourth_width] =
+        split_columns(width, &[first, second, third], 20);
+    (0..height)
+        .map(|row| {
+            format!(
+                "{}|{}|{}|{}",
+                selected_cell(
+                    first.get(row).map_or("|", String::as_str),
+                    first_width,
+                    selected_first == Some(row),
+                ),
+                selected_cell(
+                    second.get(row).map_or("", String::as_str),
+                    second_width,
+                    selected_second == Some(row),
+                ),
+                selected_cell(
+                    third.get(row).map_or("", String::as_str),
+                    third_width,
+                    selected_third == Some(row),
+                ),
+                fit(fourth.get(row).map_or("", String::as_str), fourth_width),
+            )
+        })
+        .collect()
 }
 
 fn single_column(height: usize, width: usize, column: &[String]) -> Vec<String> {
@@ -217,6 +312,48 @@ fn location_row(state: &GameState, catalog: &Catalog, location: &LocationId) -> 
         .available_locations(catalog)
         .position(|id| id == location)
         .map(|index| index + 1)
+}
+
+fn action_row(
+    state: &GameState,
+    catalog: &Catalog,
+    target: &TargetId,
+    location: &LocationId,
+    action: &ActionId,
+) -> Option<usize> {
+    state
+        .available_actions(catalog, target, location)
+        .position(|id| id == action)
+        .map(|index| index + 1)
+}
+
+fn recipe_unavailable_reason(
+    catalog: &Catalog,
+    state: &GameState,
+    recipe: &RecipeTemplate,
+) -> String {
+    if let Some(required) = recipe
+        .required_facilities
+        .iter()
+        .find(|facility| !state.has_facility(facility))
+    {
+        let label = catalog
+            .recipe(required)
+            .map_or("?", |facility| facility.label.as_str());
+        return format!("needs {label}");
+    }
+    if let Some(ingredient) = recipe
+        .ingredients
+        .iter()
+        .find(|ingredient| state.resource_count(&ingredient.resource) < ingredient.amount)
+    {
+        let label = catalog
+            .resource(&ingredient.resource)
+            .map_or("?", |resource| resource.label.as_str());
+        let held = state.resource_count(&ingredient.resource);
+        return format!("needs {label} {held}/{}", ingredient.amount);
+    }
+    String::new()
 }
 
 fn choice_key(index: usize) -> char {

@@ -1,12 +1,11 @@
-//! Data-driven content: immutable Target, Settlement, Location, Action, and
-//! Resource templates plus
-//! the [`Catalog`] pool that owns them.
+//! Data-driven content: immutable Target, Settlement, Location, Action,
+//! Resource, and Recipe templates plus the [`Catalog`] pool that owns them.
 //!
 //! Content is kept separate from the live [`GameState`](crate::GameState):
 //! templates are *instantiated* from the catalog into the state, and registering
 //! a new template makes content available without touching live state.
 
-use crate::id::{ActionId, LocationId, ResourceId, SettlementId, TargetId};
+use crate::id::{ActionId, LocationId, RecipeId, ResourceId, SettlementId, TargetId};
 use crate::random::RandomSource;
 use crate::time::seconds_to_ticks;
 
@@ -139,6 +138,88 @@ impl ResourceTemplate {
     }
 }
 
+/// One material and amount consumed when a recipe starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ingredient {
+    /// Resource consumed by the recipe.
+    pub resource: ResourceId,
+    /// Required amount.
+    pub amount: u64,
+}
+
+/// What completing a crafting recipe creates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecipeOutput {
+    /// A permanent, unique facility at the current settlement.
+    Facility,
+    /// A stackable inventory item.
+    Item {
+        /// Resource template used for the inventory item.
+        resource: ResourceId,
+        /// Amount added on completion.
+        amount: u64,
+    },
+}
+
+/// Immutable definition of one crafting recipe.
+#[derive(Debug, Clone)]
+pub struct RecipeTemplate {
+    /// Stable recipe id; facility outputs use this id as their facility id.
+    pub id: RecipeId,
+    /// English display name.
+    pub label: String,
+    /// Location where the recipe can be used.
+    pub location: LocationId,
+    /// Action that opens this recipe.
+    pub action: ActionId,
+    /// Ticks required to complete the craft.
+    pub goal_ticks: u64,
+    /// Materials consumed when crafting starts.
+    pub ingredients: Vec<Ingredient>,
+    /// Facilities that must already be complete.
+    pub required_facilities: Vec<RecipeId>,
+    /// Permanent facility or stackable item produced on completion.
+    pub output: RecipeOutput,
+}
+
+impl RecipeTemplate {
+    /// Builds a recipe with no ingredients or facility requirements.
+    pub fn new(
+        id: impl Into<RecipeId>,
+        label: impl Into<String>,
+        location: impl Into<LocationId>,
+        action: impl Into<ActionId>,
+        goal_ticks: u64,
+        output: RecipeOutput,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            location: location.into(),
+            action: action.into(),
+            goal_ticks,
+            ingredients: Vec::new(),
+            required_facilities: Vec::new(),
+            output,
+        }
+    }
+
+    /// Adds one material cost.
+    pub fn with_ingredient(mut self, resource: impl Into<ResourceId>, amount: u64) -> Self {
+        self.ingredients.push(Ingredient {
+            resource: resource.into(),
+            amount,
+        });
+        self
+    }
+
+    /// Adds one prerequisite facility by recipe id.
+    pub fn requiring(mut self, facility: impl Into<RecipeId>) -> Self {
+        self.required_facilities.push(facility.into());
+        self
+    }
+}
+
 /// One aggregated resource awarded by a completed action.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reward {
@@ -240,6 +321,7 @@ pub struct Catalog {
     actions: Vec<ActionTemplate>,
     resources: Vec<ResourceTemplate>,
     reward_tables: Vec<RewardTable>,
+    recipes: Vec<RecipeTemplate>,
 }
 
 impl Catalog {
@@ -256,7 +338,8 @@ impl Catalog {
             TargetTemplate::new("hero", "Hero")
                 .with_action("gather")
                 .with_action("fish")
-                .with_action("hunt"),
+                .with_action("hunt")
+                .with_action("craft"),
         );
         catalog.register_settlement(SettlementTemplate::new(
             "awakening_shore",
@@ -277,9 +360,11 @@ impl Catalog {
                 .with_action("gather")
                 .with_action("hunt"),
         );
+        catalog.register_location(LocationTemplate::new("base", "Base").with_action("craft"));
         for (id, label) in [("gather", "Gather"), ("fish", "Fish"), ("hunt", "Hunt")] {
             catalog.register_action(ActionTemplate::new(id, label, seconds_to_ticks(10)));
         }
+        catalog.register_action(ActionTemplate::new("craft", "Craft", seconds_to_ticks(20)));
         for (id, label) in [
             ("pebble", "Pebble"),
             ("twig", "Twig"),
@@ -290,6 +375,7 @@ impl Catalog {
             ("small_fang", "Small Fang"),
             ("awful_meat", "Awful Meat"),
             ("tiny_magic_stone", "Tiny Magic Stone"),
+            ("primitive_fishing_rod", "Primitive Fishing Rod"),
         ] {
             catalog.register_resource(ResourceTemplate::new(id, label));
         }
@@ -314,6 +400,54 @@ impl Catalog {
                 .with_resource("pebble", 1, 100),
         ] {
             catalog.register_reward_table(table);
+        }
+        for recipe in [
+            RecipeTemplate::new(
+                "stone_table",
+                "Stone Table",
+                "base",
+                "craft",
+                seconds_to_ticks(20),
+                RecipeOutput::Facility,
+            )
+            .with_ingredient("pebble", 20),
+            RecipeTemplate::new(
+                "crude_bed",
+                "Crude Bed",
+                "base",
+                "craft",
+                seconds_to_ticks(20),
+                RecipeOutput::Facility,
+            )
+            .with_ingredient("twig", 50)
+            .with_ingredient("pebble", 50)
+            .with_ingredient("grass", 50),
+            RecipeTemplate::new(
+                "crude_furnace",
+                "Crude Furnace",
+                "base",
+                "craft",
+                seconds_to_ticks(20),
+                RecipeOutput::Facility,
+            )
+            .with_ingredient("pebble", 100),
+            RecipeTemplate::new(
+                "primitive_fishing_rod",
+                "Primitive Fishing Rod",
+                "base",
+                "craft",
+                seconds_to_ticks(20),
+                RecipeOutput::Item {
+                    resource: ResourceId::new("primitive_fishing_rod"),
+                    amount: 1,
+                },
+            )
+            .requiring("stone_table")
+            .with_ingredient("twig", 5)
+            .with_ingredient("vine", 5)
+            .with_ingredient("small_fang", 3),
+        ] {
+            catalog.register_recipe(recipe);
         }
         catalog
     }
@@ -350,6 +484,11 @@ impl Catalog {
         self.reward_tables.push(table);
     }
 
+    /// Adds one crafting recipe.
+    pub fn register_recipe(&mut self, recipe: RecipeTemplate) {
+        self.recipes.push(recipe);
+    }
+
     /// Looks up a target template by id, or `None` for unknown content.
     pub fn target(&self, id: &TargetId) -> Option<&TargetTemplate> {
         self.targets.iter().find(|t| &t.id == id)
@@ -375,6 +514,11 @@ impl Catalog {
     /// Looks up a resource template by id, or `None` for unknown content.
     pub fn resource(&self, id: &ResourceId) -> Option<&ResourceTemplate> {
         self.resources.iter().find(|resource| &resource.id == id)
+    }
+
+    /// Looks up a crafting recipe by id.
+    pub fn recipe(&self, id: &RecipeId) -> Option<&RecipeTemplate> {
+        self.recipes.iter().find(|recipe| &recipe.id == id)
     }
 
     /// Looks up the reward table for a Location and Action combination.
@@ -413,6 +557,11 @@ impl Catalog {
     pub fn reward_tables(&self) -> impl Iterator<Item = &RewardTable> {
         self.reward_tables.iter()
     }
+
+    /// Iterates crafting recipes in registration (= menu) order.
+    pub fn recipes(&self) -> impl Iterator<Item = &RecipeTemplate> {
+        self.recipes.iter()
+    }
 }
 
 #[cfg(test)]
@@ -449,6 +598,7 @@ mod tests {
         assert!(catalog.settlements().next().is_some());
         assert!(catalog.locations().next().is_some());
         assert!(catalog.actions().next().is_some());
+        assert!(catalog.recipes().next().is_some());
     }
 
     #[test]
@@ -467,15 +617,18 @@ mod tests {
         assert_eq!(settlements, [("awakening_shore", "Awakening Shore")]);
 
         let location_ids: Vec<&str> = catalog.locations().map(|l| l.id.as_str()).collect();
-        assert_eq!(location_ids, ["first_shore", "nearby_woods", "nearby_hill"]);
+        assert_eq!(
+            location_ids,
+            ["first_shore", "nearby_woods", "nearby_hill", "base"]
+        );
         let location_labels: Vec<&str> = catalog.locations().map(|l| l.label.as_str()).collect();
         assert_eq!(
             location_labels,
-            ["First Shore", "Nearby Woods", "Nearby Hill"]
+            ["First Shore", "Nearby Woods", "Nearby Hill", "Base"]
         );
 
         let action_ids: Vec<&str> = catalog.actions().map(|a| a.id.as_str()).collect();
-        assert_eq!(action_ids, ["gather", "fish", "hunt"]);
+        assert_eq!(action_ids, ["gather", "fish", "hunt", "craft"]);
         assert_eq!(
             catalog.action(&ActionId::new("gather")).unwrap().label,
             "Gather"
@@ -504,6 +657,8 @@ mod tests {
         assert!(catalog.location(&LocationId::new("volcano")).is_none());
         assert!(catalog.action(&ActionId::new("gather")).is_some());
         assert!(catalog.action(&ActionId::new("mining")).is_none());
+        assert!(catalog.recipe(&RecipeId::new("stone_table")).is_some());
+        assert!(catalog.recipe(&RecipeId::new("iron_sword")).is_none());
     }
 
     #[test]
@@ -513,6 +668,7 @@ mod tests {
         assert!(hero.supports(&ActionId::new("gather")));
         assert!(hero.supports(&ActionId::new("fish")));
         assert!(hero.supports(&ActionId::new("hunt")));
+        assert!(hero.supports(&ActionId::new("craft")));
         let shore = catalog.location(&LocationId::new("first_shore")).unwrap();
         assert!(shore.supports(&ActionId::new("gather")));
         assert!(shore.supports(&ActionId::new("fish")));
@@ -520,10 +676,15 @@ mod tests {
     }
 
     #[test]
-    fn every_builtin_action_takes_ten_seconds() {
+    fn builtin_action_durations_match_the_shipped_balance() {
         let catalog = Catalog::builtin();
         for action in catalog.actions() {
-            assert_eq!(action.goal_ticks, seconds_to_ticks(10));
+            let expected = if action.id == ActionId::new("craft") {
+                seconds_to_ticks(20)
+            } else {
+                seconds_to_ticks(10)
+            };
+            assert_eq!(action.goal_ticks, expected);
             assert_eq!(
                 crate::Progress::new(action.goal_ticks).goal(),
                 action.goal_ticks
@@ -550,6 +711,7 @@ mod tests {
                 "small_fang",
                 "awful_meat",
                 "tiny_magic_stone",
+                "primitive_fishing_rod",
             ]
         );
         let mut unique = resource_ids.clone();
@@ -577,13 +739,55 @@ mod tests {
         for location in catalog.locations() {
             for action in &location.actions {
                 assert!(
-                    catalog.reward_table(&location.id, action).is_some(),
-                    "missing reward table for {}/{}",
+                    catalog.reward_table(&location.id, action).is_some()
+                        || catalog.recipes().any(|recipe| {
+                            recipe.location == location.id && recipe.action == *action
+                        }),
+                    "missing completion content for {}/{}",
                     location.id.as_str(),
                     action.as_str()
                 );
             }
         }
+    }
+
+    #[test]
+    fn builtin_recipes_match_the_shipped_costs_and_requirements() {
+        let catalog = Catalog::builtin();
+        let recipes: Vec<_> = catalog.recipes().collect();
+        assert_eq!(recipes.len(), 4);
+        assert!(recipes.iter().all(|recipe| {
+            recipe.location == LocationId::new("base")
+                && recipe.action == ActionId::new("craft")
+                && recipe.goal_ticks == seconds_to_ticks(20)
+        }));
+
+        let costs = |id: &str| {
+            catalog
+                .recipe(&RecipeId::new(id))
+                .unwrap()
+                .ingredients
+                .iter()
+                .map(|ingredient| (ingredient.resource.as_str(), ingredient.amount))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(costs("stone_table"), [("pebble", 20)]);
+        assert_eq!(
+            costs("crude_bed"),
+            [("twig", 50), ("pebble", 50), ("grass", 50)]
+        );
+        assert_eq!(costs("crude_furnace"), [("pebble", 100)]);
+        assert_eq!(
+            costs("primitive_fishing_rod"),
+            [("twig", 5), ("vine", 5), ("small_fang", 3)]
+        );
+        assert_eq!(
+            catalog
+                .recipe(&RecipeId::new("primitive_fishing_rod"))
+                .unwrap()
+                .required_facilities,
+            [RecipeId::new("stone_table")]
+        );
     }
 
     #[test]
