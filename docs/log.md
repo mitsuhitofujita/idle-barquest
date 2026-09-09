@@ -123,3 +123,11 @@
   renamed Inventory display.
 - Kept recipes as catalog content so crafting rules remain terminal-independent
   and existing gathering tasks keep their reward behavior.
+
+## Action confirmation previews (2026-09-09)
+
+- Added reward previews with material amounts and drop chances before ordinary
+  actions start, and made Enter the explicit start command.
+- Made every available recipe selectable for a requirements preview showing
+  held/required materials and facility status; Enter stays disabled until the
+  recipe can start.

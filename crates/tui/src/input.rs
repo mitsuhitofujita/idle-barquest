@@ -16,6 +16,8 @@ pub(crate) enum Input {
     /// The player picked the 0-based entry represented by a letter in the
     /// active choices column (`a` is 0, `b` is 1, and so on).
     Select(usize),
+    /// Start the action or recipe currently shown in the confirmation column.
+    Confirm,
     /// Return one stage in the choices flow (`Backspace`).
     Back,
     /// Move the acquired-material viewport one item toward Catalog start (`,`).
@@ -27,8 +29,8 @@ pub(crate) enum Input {
 }
 
 /// Reduces a raw terminal event to an [`Input`]. Only key *presses* count: `q` /
-/// `Esc` / `Ctrl-C` quit, Backspace returns one stage, a letter selects an
-/// entry, and anything else is ignored.
+/// `Esc` / `Ctrl-C` quit, Backspace returns one stage, Enter confirms an
+/// action, a letter selects an entry, and anything else is ignored.
 pub(crate) fn translate(event: &Event) -> Input {
     let Event::Key(key) = event else {
         return Input::Ignored;
@@ -40,6 +42,7 @@ pub(crate) fn translate(event: &Event) -> Input {
         KeyCode::Char('q') | KeyCode::Esc => Input::Quit,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Input::Quit,
         KeyCode::Backspace => Input::Back,
+        KeyCode::Enter => Input::Confirm,
         KeyCode::Char(',') => Input::PreviousMaterials,
         KeyCode::Char('.') => Input::NextMaterials,
         KeyCode::Char(c) => selection_index(c).map_or(Input::Ignored, Input::Select),
@@ -99,6 +102,12 @@ mod tests {
     fn backspace_translates_to_back() {
         let backspace = Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
         assert_eq!(translate(&backspace), Input::Back);
+    }
+
+    #[test]
+    fn enter_translates_to_confirm() {
+        let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(translate(&enter), Input::Confirm);
     }
 
     #[test]

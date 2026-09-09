@@ -8,11 +8,14 @@ and the seeded random source. Raw Crossterm events are translated into a small
 input enum before application behavior is applied.
 
 Task assignment normally follows a progressive Target -> Location -> Action
-flow. Selecting Craft at Base adds a Recipe stage. The active column uses
-case-insensitive positional ASCII letters: `a` selects the first entry, `b` the
-second, and so on. Busy targets keep their fixed letter slot but cannot be
-selected. Backspace moves back one stage. Numeric and unknown input is ignored;
-`q`, Escape, and Ctrl-C quit from any stage.
+flow. Selecting an ordinary action opens a reward preview, and Enter starts the
+task. Selecting Craft at Base adds a Recipe stage; selecting a recipe opens its
+requirements preview, and Enter starts the craft only when all requirements are
+met. The active choice column uses case-insensitive positional ASCII letters:
+`a` selects the first entry, `b` the second, and so on. Busy targets keep their
+fixed letter slot but cannot be selected. Backspace moves back one stage,
+including from a preview to its choice list. Numeric and unknown input is
+ignored; `q`, Escape, and Ctrl-C quit from any stage.
 
 Comma and period move the inventory viewport one acquired entry backward or
 forward. These controls are global and do not alter the current assignment
@@ -43,16 +46,21 @@ entries.
 ## Choices and progress
 
 User Choices initially shows only Target. Selecting a target adds Location, and
-selecting a location adds Action. Selecting Craft at Base adds Recipe as a
-fourth column. Completed columns lose their letter keys and show `<` at the
-selected row; the active column is marked with `>`. Completed columns use their
-content width while leaving at least 20 columns for the active stage. The region
-displays its heading and at most five entries.
+selecting a location adds Action. Selecting an ordinary action adds a Rewards
+column containing each possible material, amount, and independent percentage
+chance. Selecting Craft at Base adds Recipe as a fourth column; selecting a
+recipe adds a fifth Requirements column. Recipe ingredients display current and
+required amounts as `Label held/required`, and facility prerequisites display
+whether they are ready or missing.
 
-Unbuilt facility recipes and repeatable item recipes remain visible when they
-cannot start. Their choice key is replaced with a dash, and the first unmet
-facility or material requirement is displayed before the recipe name. A unique
-facility recipe is omitted while under construction and after completion.
+Completed columns lose their letter keys and show `<` at the selected row; the
+active column is marked with `>`. Completed columns use their content width while
+leaving at least 20 columns for the active stage. The region displays its heading
+and at most five entries. Recipes remain selectable when their requirements are
+unmet so their details can be previewed. In a confirmation preview, the global
+menu shows `ENTER) Start` when execution is available and a disabled `-) Start`
+otherwise; disabled Enter input is ignored. A unique facility recipe is omitted
+while under construction and after completion.
 
 Each active task occupies one Progress row, with Target, Location, Action, and
 Progress Bar columns using 20%, 20%, 20%, and 40% of the width. A crafting row

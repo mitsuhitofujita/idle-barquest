@@ -10,8 +10,8 @@
 //! bars fill **concurrently** like an `apt` / `mise` update. The player picks a
 //! target, location, and action by letter in a progressive user-choices panel
 //! (`>` marks the active column; `<` marks completed selections); Backspace
-//! returns one stage, `,` / `.` moves through acquired materials, and `q` /
-//! `Esc` / `Ctrl-C` quits from any screen.
+//! returns one stage, Enter starts a previewed action or recipe, `,` / `.` moves
+//! through acquired materials, and `q` / `Esc` / `Ctrl-C` quits from any screen.
 //!
 //! The binary is split into three concerns: [`app`] owns the mutable game state
 //! and its behaviour, [`input`] translates terminal events into intent, and

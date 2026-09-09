@@ -1,7 +1,8 @@
 //! Testable front-end state and behavior for the progressive choices flow.
 
 use barquest_core::{
-    ActionId, Catalog, GameEvent, GameState, LocationId, ResourceId, SeededRandom, TargetId,
+    ActionId, Catalog, GameEvent, GameState, LocationId, RecipeId, ResourceId, SeededRandom,
+    TargetId,
 };
 
 use crate::input::Input;
@@ -11,7 +12,7 @@ pub(crate) const TICKS_PER_FRAME: u64 = 100;
 const LOG_CAPACITY: usize = 200;
 pub(crate) const INVENTORY_PREFIX_WIDTH: u16 = 12;
 
-/// The current stage of `Target -> Location -> Action -> Recipe` selection.
+/// The current stage of progressive selection and its final confirmation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum Menu {
@@ -23,10 +24,21 @@ pub(crate) enum Menu {
         target: TargetId,
         location: LocationId,
     },
+    ConfirmAction {
+        target: TargetId,
+        location: LocationId,
+        action: ActionId,
+    },
     SelectRecipe {
         target: TargetId,
         location: LocationId,
         action: ActionId,
+    },
+    ConfirmRecipe {
+        target: TargetId,
+        location: LocationId,
+        action: ActionId,
+        recipe: RecipeId,
     },
 }
 
@@ -59,6 +71,7 @@ impl App {
             Input::Quit => return true,
             Input::Back => self.back(),
             Input::Select(index) => self.select(index),
+            Input::Confirm => self.confirm(),
             Input::PreviousMaterials => self.move_materials(material_width, false),
             Input::NextMaterials => self.move_materials(material_width, true),
             Input::Ignored => {}
@@ -129,11 +142,12 @@ impl App {
                             location,
                             action,
                         };
-                    } else if self
-                        .state
-                        .assign_action(&self.catalog, &target, &location, &action)
-                    {
-                        self.menu = Menu::SelectTarget;
+                    } else {
+                        self.menu = Menu::ConfirmAction {
+                            target,
+                            location,
+                            action,
+                        };
                     }
                 }
             }
@@ -142,22 +156,70 @@ impl App {
                 location,
                 action,
             } => {
-                let target = target.clone();
-                let location = location.clone();
-                let action = action.clone();
                 let recipe = self
                     .state
-                    .available_recipes(&self.catalog, &location, &action)
+                    .available_recipes(&self.catalog, location, action)
                     .nth(index)
                     .map(|recipe| recipe.id.clone());
-                if let Some(recipe) = recipe
-                    && self
-                        .state
-                        .assign_recipe(&self.catalog, &target, &location, &action, &recipe)
+                if let Some(recipe) = recipe {
+                    self.menu = Menu::ConfirmRecipe {
+                        target: target.clone(),
+                        location: location.clone(),
+                        action: action.clone(),
+                        recipe,
+                    };
+                }
+            }
+            Menu::ConfirmAction { .. } | Menu::ConfirmRecipe { .. } => {}
+        }
+    }
+
+    fn confirm(&mut self) {
+        match &self.menu {
+            Menu::ConfirmAction {
+                target,
+                location,
+                action,
+            } => {
+                if self
+                    .state
+                    .assign_action(&self.catalog, target, location, action)
                 {
                     self.menu = Menu::SelectTarget;
                 }
             }
+            Menu::ConfirmRecipe {
+                target,
+                location,
+                action,
+                recipe,
+            } => {
+                if self
+                    .state
+                    .assign_recipe(&self.catalog, target, location, action, recipe)
+                {
+                    self.menu = Menu::SelectTarget;
+                }
+            }
+            Menu::SelectTarget
+            | Menu::SelectLocation { .. }
+            | Menu::SelectAction { .. }
+            | Menu::SelectRecipe { .. } => {}
+        }
+    }
+
+    pub(crate) fn can_confirm(&self) -> bool {
+        match &self.menu {
+            Menu::ConfirmAction { .. } => true,
+            Menu::ConfirmRecipe {
+                target,
+                location,
+                action,
+                recipe,
+            } => self
+                .state
+                .can_craft_recipe(&self.catalog, target, location, action, recipe),
+            _ => false,
         }
     }
 
@@ -168,11 +230,27 @@ impl App {
             Menu::SelectAction { target, .. } => Menu::SelectLocation {
                 target: target.clone(),
             },
+            Menu::ConfirmAction {
+                target, location, ..
+            } => Menu::SelectAction {
+                target: target.clone(),
+                location: location.clone(),
+            },
             Menu::SelectRecipe {
                 target, location, ..
             } => Menu::SelectAction {
                 target: target.clone(),
                 location: location.clone(),
+            },
+            Menu::ConfirmRecipe {
+                target,
+                location,
+                action,
+                ..
+            } => Menu::SelectRecipe {
+                target: target.clone(),
+                location: location.clone(),
+                action: action.clone(),
             },
         };
     }
@@ -257,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn selection_walks_target_location_action_then_assigns() {
+    fn selection_walks_to_action_confirmation_then_enter_assigns() {
         let mut app = App::new(0);
         assert!(!app.update(Input::Select(0), 80));
         assert_eq!(
@@ -276,6 +354,17 @@ mod tests {
         );
         // Nearby Woods exposes Gather then Hunt; `b` chooses Hunt.
         app.update(Input::Select(1), 80);
+        assert_eq!(
+            app.menu,
+            Menu::ConfirmAction {
+                target: TargetId::new("hero"),
+                location: LocationId::new("nearby_woods"),
+                action: ActionId::new("hunt"),
+            }
+        );
+        assert!(app.state.targets[0].quest.is_none());
+
+        app.update(Input::Confirm, 80);
         assert_eq!(app.menu, Menu::SelectTarget);
         let quest = app.state.targets[0].quest.as_ref().unwrap();
         assert_eq!(quest.location, LocationId::new("nearby_woods"));
@@ -312,11 +401,46 @@ mod tests {
     }
 
     #[test]
+    fn back_returns_from_confirmations_to_their_choice_stage() {
+        let mut app = App::new(0);
+        app.menu = Menu::ConfirmAction {
+            target: TargetId::new("hero"),
+            location: LocationId::new("first_shore"),
+            action: ActionId::new("gather"),
+        };
+        app.update(Input::Back, 80);
+        assert_eq!(
+            app.menu,
+            Menu::SelectAction {
+                target: TargetId::new("hero"),
+                location: LocationId::new("first_shore"),
+            }
+        );
+
+        app.menu = Menu::ConfirmRecipe {
+            target: TargetId::new("hero"),
+            location: LocationId::new("base"),
+            action: ActionId::new("craft"),
+            recipe: RecipeId::new("stone_table"),
+        };
+        app.update(Input::Back, 80);
+        assert_eq!(
+            app.menu,
+            Menu::SelectRecipe {
+                target: TargetId::new("hero"),
+                location: LocationId::new("base"),
+                action: ActionId::new("craft"),
+            }
+        );
+    }
+
+    #[test]
     fn busy_target_fixed_slot_is_ignored_and_freed_after_completion() {
         let mut app = App::new(0);
         app.update(Input::Select(0), 80);
         app.update(Input::Select(0), 80);
         app.update(Input::Select(0), 80);
+        app.update(Input::Confirm, 80);
         assert!(app.state.targets[0].quest.is_some());
         app.update(Input::Select(0), 80);
         assert_eq!(app.menu, Menu::SelectTarget);
@@ -371,10 +495,23 @@ mod tests {
             action: ActionId::new("craft"),
         };
         assert!(app.update(Input::Quit, 80));
+        app.menu = Menu::ConfirmAction {
+            target: TargetId::new("hero"),
+            location: LocationId::new("first_shore"),
+            action: ActionId::new("gather"),
+        };
+        assert!(app.update(Input::Quit, 80));
+        app.menu = Menu::ConfirmRecipe {
+            target: TargetId::new("hero"),
+            location: LocationId::new("base"),
+            action: ActionId::new("craft"),
+            recipe: RecipeId::new("stone_table"),
+        };
+        assert!(app.update(Input::Quit, 80));
     }
 
     #[test]
-    fn craft_selection_keeps_disabled_recipe_visible_then_starts_when_affordable() {
+    fn disabled_recipe_can_be_previewed_but_only_starts_when_affordable() {
         let mut app = App::new(0);
         app.update(Input::Select(0), 80);
         app.update(Input::Select(3), 80);
@@ -389,12 +526,26 @@ mod tests {
         );
 
         app.update(Input::Select(0), 80);
-        assert!(matches!(app.menu, Menu::SelectRecipe { .. }));
+        assert_eq!(
+            app.menu,
+            Menu::ConfirmRecipe {
+                target: TargetId::new("hero"),
+                location: LocationId::new("base"),
+                action: ActionId::new("craft"),
+                recipe: RecipeId::new("stone_table"),
+            }
+        );
+        assert!(!app.can_confirm());
+        app.update(Input::Confirm, 80);
+        assert!(matches!(app.menu, Menu::ConfirmRecipe { .. }));
+        assert!(app.state.targets[0].quest.is_none());
+
         app.state.inventory.push(ResourceStack {
             resource: ResourceId::new("pebble"),
             amount: 20,
         });
-        app.update(Input::Select(0), 80);
+        assert!(app.can_confirm());
+        app.update(Input::Confirm, 80);
 
         assert_eq!(app.menu, Menu::SelectTarget);
         assert_eq!(app.state.resource_count(&ResourceId::new("pebble")), 0);
@@ -482,6 +633,7 @@ mod tests {
         app.update(Input::Select(0), 80);
         app.update(Input::Select(1), 80);
         app.update(Input::Select(1), 80);
+        app.update(Input::Confirm, 80);
         app.advance(seconds_to_ticks(10));
         assert_eq!(
             app.log,

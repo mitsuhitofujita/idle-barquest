@@ -11,7 +11,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::widgets::Paragraph;
 
-use crate::app::{App, INVENTORY_PREFIX_WIDTH};
+use crate::app::{App, INVENTORY_PREFIX_WIDTH, Menu};
 use crate::materials;
 
 mod choices;
@@ -87,7 +87,7 @@ pub(crate) fn render(frame: &mut Frame, app: &App) {
     choices::render_choices(frame, choices, &app.catalog, &app.state, &app.menu);
     render_log(frame, log_area, &app.log);
     render_materials(frame, material_area, app);
-    render_menu(frame, menu_area);
+    render_menu(frame, menu_area, app);
     for sep in [sep1, sep2, sep3] {
         render_separator(frame, sep);
     }
@@ -140,11 +140,17 @@ fn render_materials(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// Draws the always-visible global menu: commands valid from any UI state.
-fn render_menu(frame: &mut Frame, area: Rect) {
-    frame.render_widget(
-        Paragraph::new(" ,) Previous Inventory  .) Next Inventory  BACKSPACE) Back  ESC) Quit"),
-        area,
-    );
+fn render_menu(frame: &mut Frame, area: Rect, app: &App) {
+    let confirmation = match app.menu {
+        Menu::ConfirmAction { .. } | Menu::ConfirmRecipe { .. } if app.can_confirm() => {
+            " ENTER) Start  ,/.) Inventory  BACKSPACE) Back  ESC) Quit"
+        }
+        Menu::ConfirmAction { .. } | Menu::ConfirmRecipe { .. } => {
+            " -) Start  ,/.) Inventory  BACKSPACE) Back  ESC) Quit"
+        }
+        _ => " ,) Previous Inventory  .) Next Inventory  BACKSPACE) Back  ESC) Quit",
+    };
+    frame.render_widget(Paragraph::new(confirmation), area);
 }
 
 /// Draws the information log with a permanent blank first row. Game events are
@@ -468,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn recipe_menu_shows_unmet_conditions_and_four_selection_stages() {
+    fn recipe_menu_keeps_unavailable_recipes_selectable() {
         let mut app = App::new(0);
         app.menu = Menu::SelectRecipe {
             target: TargetId::new("hero"),
@@ -479,13 +485,60 @@ mod tests {
         let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
         let choices = rows[9..15].join("\n");
         assert!(choices.contains("> Recipe:"));
-        assert!(choices.contains("needs Pebble 0/20: Stone Table"));
-        assert!(choices.contains("needs Stone Table: Primitive"));
+        assert!(choices.contains("a) Stone Table"));
+        assert!(choices.contains("d) Primitive"));
         assert!(
             rows[9..15]
                 .iter()
                 .all(|row| row.chars().filter(|&cell| cell == '|').count() == 4)
         );
+    }
+
+    #[test]
+    fn action_confirmation_shows_reward_amounts_chances_and_enter() {
+        let mut app = App::new(0);
+        app.menu = Menu::ConfirmAction {
+            target: TargetId::new("hero"),
+            location: LocationId::new("first_shore"),
+            action: ActionId::new("gather"),
+        };
+
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+        let choices = rows[9..15].join("\n");
+        assert!(choices.contains("> Rewards:"));
+        assert!(choices.contains("Seaweed Fragment x1 (60%)"));
+        assert!(choices.contains("Pebble x1 (100%)"));
+        assert!(rows[23].contains("ENTER) Start"));
+    }
+
+    #[test]
+    fn recipe_confirmation_shows_held_cost_and_disables_enter() {
+        let mut app = App::new(0);
+        app.menu = Menu::ConfirmRecipe {
+            target: TargetId::new("hero"),
+            location: LocationId::new("base"),
+            action: ActionId::new("craft"),
+            recipe: RecipeId::new("stone_table"),
+        };
+
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+        let choices = rows[9..15].join("\n");
+        assert!(choices.contains("> Requirements:"));
+        assert!(choices.contains("Pebble 0/20"));
+        assert!(rows[23].contains("-) Start"));
+        assert!(!rows[23].contains("ENTER) Start"));
+        assert!(
+            rows[9..15]
+                .iter()
+                .all(|row| row.chars().filter(|&cell| cell == '|').count() == 5)
+        );
+
+        app.state.inventory.push(ResourceStack {
+            resource: ResourceId::new("pebble"),
+            amount: 20,
+        });
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+        assert!(rows[23].contains("ENTER) Start"));
     }
 
     #[test]
