@@ -131,3 +131,14 @@
 - Made every available recipe selectable for a requirements preview showing
   held/required materials and facility status; Enter stays disabled until the
   recipe can start.
+
+## Craft start status (2026-09-09)
+
+- Moved the craft start status from the global menu into the Requirements pane.
+- The pane shows `ENTER) Start` when the recipe is ready, or its blocking reason
+  when it cannot begin, so the state appears beside the requirements.
+
+## Confirmation pane footers (2026-09-09)
+
+- Fixed recipe start states to the final row of the Requirements pane.
+- Added `ENTER) Start` to the final row of ordinary-action Rewards panes as well.

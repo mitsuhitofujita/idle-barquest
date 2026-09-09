@@ -138,8 +138,13 @@ pub(super) fn render_choices(
     let details = match menu {
         Menu::ConfirmAction {
             location, action, ..
-        } => reward_details(catalog, location, action),
-        Menu::ConfirmRecipe { recipe, .. } => recipe_details(catalog, state, recipe),
+        } => reward_details(catalog, location, action, height),
+        Menu::ConfirmRecipe {
+            target,
+            location,
+            action,
+            recipe,
+        } => recipe_details(catalog, state, target, location, action, recipe, height),
         _ => Vec::new(),
     };
 
@@ -436,7 +441,12 @@ fn recipe_row(state: &GameState, catalog: &Catalog, recipe: &RecipeId) -> Option
         .map(|index| index + 1)
 }
 
-fn reward_details(catalog: &Catalog, location: &LocationId, action: &ActionId) -> Vec<String> {
+fn reward_details(
+    catalog: &Catalog,
+    location: &LocationId,
+    action: &ActionId,
+    height: usize,
+) -> Vec<String> {
     let mut details = vec![header("Rewards:", true)];
     if let Some(table) = catalog.reward_table(location, action) {
         details.extend(table.entries().map(|entry| {
@@ -446,13 +456,21 @@ fn reward_details(catalog: &Catalog, location: &LocationId, action: &ActionId) -
             format!(" {label} x{} ({}%)", entry.amount, entry.chance)
         }));
     }
-    details
+    with_footer(details, height, " ENTER) Start".to_string())
 }
 
-fn recipe_details(catalog: &Catalog, state: &GameState, recipe: &RecipeId) -> Vec<String> {
+fn recipe_details(
+    catalog: &Catalog,
+    state: &GameState,
+    target: &TargetId,
+    location: &LocationId,
+    action: &ActionId,
+    recipe: &RecipeId,
+    height: usize,
+) -> Vec<String> {
     let mut details = vec![header("Requirements:", true)];
     let Some(recipe) = catalog.recipe(recipe) else {
-        return details;
+        return with_footer(details, height, " Cannot start".to_string());
     };
     details.extend(recipe.ingredients.iter().map(|ingredient| {
         let label = catalog
@@ -472,7 +490,53 @@ fn recipe_details(catalog: &Catalog, state: &GameState, recipe: &RecipeId) -> Ve
         };
         format!(" {label}: {status}")
     }));
+    with_footer(
+        details,
+        height,
+        recipe_start_status(catalog, state, target, location, action, recipe),
+    )
+}
+
+/// Keeps a confirmation status at the bottom of its fixed-height pane.
+fn with_footer(mut details: Vec<String>, height: usize, footer: String) -> Vec<String> {
+    let content_height = height.saturating_sub(1);
+    details.truncate(content_height);
+    details.resize(content_height, String::new());
+    if height > 0 {
+        details.push(footer);
+    }
     details
+}
+
+fn recipe_start_status(
+    catalog: &Catalog,
+    state: &GameState,
+    target: &TargetId,
+    location: &LocationId,
+    action: &ActionId,
+    recipe: &barquest_core::RecipeTemplate,
+) -> String {
+    if state.can_craft_recipe(catalog, target, location, action, &recipe.id) {
+        return " ENTER) Start".to_string();
+    }
+
+    if recipe
+        .ingredients
+        .iter()
+        .any(|ingredient| state.resource_count(&ingredient.resource) < ingredient.amount)
+    {
+        return " Missing materials".to_string();
+    }
+
+    if recipe
+        .required_facilities
+        .iter()
+        .any(|facility| !state.has_facility(facility))
+    {
+        return " Missing facility".to_string();
+    }
+
+    " Cannot start".to_string()
 }
 
 fn choice_key(index: usize) -> char {

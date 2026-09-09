@@ -48,18 +48,19 @@ entries.
 User Choices initially shows only Target. Selecting a target adds Location, and
 selecting a location adds Action. Selecting an ordinary action adds a Rewards
 column containing each possible material, amount, and independent percentage
-chance. Selecting Craft at Base adds Recipe as a fourth column; selecting a
+chance, with `ENTER) Start` on the pane's final row. Selecting Craft at Base adds Recipe as a fourth column; selecting a
 recipe adds a fifth Requirements column. Recipe ingredients display current and
 required amounts as `Label held/required`, and facility prerequisites display
-whether they are ready or missing.
+whether they are ready or missing. The Requirements pane ends with `ENTER) Start`
+when the selected recipe can begin; otherwise its final row shows the blocking
+reason, such as missing materials or a facility.
 
 Completed columns lose their letter keys and show `<` at the selected row; the
 active column is marked with `>`. Completed columns use their content width while
 leaving at least 20 columns for the active stage. The region displays its heading
 and at most five entries. Recipes remain selectable when their requirements are
-unmet so their details can be previewed. In a confirmation preview, the global
-menu shows `ENTER) Start` when execution is available and a disabled `-) Start`
-otherwise; disabled Enter input is ignored. A unique facility recipe is omitted
+unmet so their details can be previewed. The global menu contains only global
+controls; disabled Enter input is ignored. A unique facility recipe is omitted
 while under construction and after completion.
 
 Each active task occupies one Progress row, with Target, Location, Action, and

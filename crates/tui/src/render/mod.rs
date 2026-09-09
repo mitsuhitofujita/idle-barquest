@@ -11,7 +11,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::widgets::Paragraph;
 
-use crate::app::{App, INVENTORY_PREFIX_WIDTH, Menu};
+use crate::app::{App, INVENTORY_PREFIX_WIDTH};
 use crate::materials;
 
 mod choices;
@@ -140,17 +140,9 @@ fn render_materials(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// Draws the always-visible global menu: commands valid from any UI state.
-fn render_menu(frame: &mut Frame, area: Rect, app: &App) {
-    let confirmation = match app.menu {
-        Menu::ConfirmAction { .. } | Menu::ConfirmRecipe { .. } if app.can_confirm() => {
-            " ENTER) Start  ,/.) Inventory  BACKSPACE) Back  ESC) Quit"
-        }
-        Menu::ConfirmAction { .. } | Menu::ConfirmRecipe { .. } => {
-            " -) Start  ,/.) Inventory  BACKSPACE) Back  ESC) Quit"
-        }
-        _ => " ,) Previous Inventory  .) Next Inventory  BACKSPACE) Back  ESC) Quit",
-    };
-    frame.render_widget(Paragraph::new(confirmation), area);
+fn render_menu(frame: &mut Frame, area: Rect, _app: &App) {
+    let menu = " ,) Previous Inventory  .) Next Inventory  BACKSPACE) Back  ESC) Quit";
+    frame.render_widget(Paragraph::new(menu), area);
 }
 
 /// Draws the information log with a permanent blank first row. Game events are
@@ -495,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn action_confirmation_shows_reward_amounts_chances_and_enter() {
+    fn action_confirmation_shows_reward_amounts_and_chances() {
         let mut app = App::new(0);
         app.menu = Menu::ConfirmAction {
             target: TargetId::new("hero"),
@@ -508,11 +500,12 @@ mod tests {
         assert!(choices.contains("> Rewards:"));
         assert!(choices.contains("Seaweed Fragment x1 (60%)"));
         assert!(choices.contains("Pebble x1 (100%)"));
-        assert!(rows[23].contains("ENTER) Start"));
+        assert!(rows[14].contains("ENTER) Start"));
+        assert!(!rows[23].contains("Start"));
     }
 
     #[test]
-    fn recipe_confirmation_shows_held_cost_and_disables_enter() {
+    fn recipe_confirmation_shows_held_cost_and_start_status() {
         let mut app = App::new(0);
         app.menu = Menu::ConfirmRecipe {
             target: TargetId::new("hero"),
@@ -525,8 +518,8 @@ mod tests {
         let choices = rows[9..15].join("\n");
         assert!(choices.contains("> Requirements:"));
         assert!(choices.contains("Pebble 0/20"));
-        assert!(rows[23].contains("-) Start"));
-        assert!(!rows[23].contains("ENTER) Start"));
+        assert!(rows[14].contains("Missing materials"));
+        assert!(!rows[23].contains("Start"));
         assert!(
             rows[9..15]
                 .iter()
@@ -538,7 +531,39 @@ mod tests {
             amount: 20,
         });
         let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
-        assert!(rows[23].contains("ENTER) Start"));
+        let choices = rows[9..15].join("\n");
+        assert!(choices.contains("ENTER) Start"));
+        assert!(rows[14].contains("ENTER) Start"));
+    }
+
+    #[test]
+    fn recipe_confirmation_names_a_missing_facility() {
+        let mut app = App::new(0);
+        app.menu = Menu::ConfirmRecipe {
+            target: TargetId::new("hero"),
+            location: LocationId::new("base"),
+            action: ActionId::new("craft"),
+            recipe: RecipeId::new("primitive_fishing_rod"),
+        };
+        app.state.inventory.extend([
+            ResourceStack {
+                resource: ResourceId::new("twig"),
+                amount: 5,
+            },
+            ResourceStack {
+                resource: ResourceId::new("vine"),
+                amount: 5,
+            },
+            ResourceStack {
+                resource: ResourceId::new("small_fang"),
+                amount: 3,
+            },
+        ]);
+
+        let rows = screen_rows_at(MIN_WIDTH, MIN_HEIGHT, &app);
+        let choices = rows[9..15].join("\n");
+        assert!(choices.contains("Stone Table: missing"));
+        assert!(rows[14].contains("Missing facility"));
     }
 
     #[test]

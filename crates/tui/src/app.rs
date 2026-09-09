@@ -208,21 +208,6 @@ impl App {
         }
     }
 
-    pub(crate) fn can_confirm(&self) -> bool {
-        match &self.menu {
-            Menu::ConfirmAction { .. } => true,
-            Menu::ConfirmRecipe {
-                target,
-                location,
-                action,
-                recipe,
-            } => self
-                .state
-                .can_craft_recipe(&self.catalog, target, location, action, recipe),
-            _ => false,
-        }
-    }
-
     fn back(&mut self) {
         self.menu = match &self.menu {
             Menu::SelectTarget => return,
@@ -535,7 +520,6 @@ mod tests {
                 recipe: RecipeId::new("stone_table"),
             }
         );
-        assert!(!app.can_confirm());
         app.update(Input::Confirm, 80);
         assert!(matches!(app.menu, Menu::ConfirmRecipe { .. }));
         assert!(app.state.targets[0].quest.is_none());
@@ -544,7 +528,6 @@ mod tests {
             resource: ResourceId::new("pebble"),
             amount: 20,
         });
-        assert!(app.can_confirm());
         app.update(Input::Confirm, 80);
 
         assert_eq!(app.menu, Menu::SelectTarget);
